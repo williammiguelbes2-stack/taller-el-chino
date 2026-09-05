@@ -1,0 +1,1206 @@
+/* =========================================================
+   TALLER EL CHINO
+   Diseño moderno - azul oscuro / gris
+   ========================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+
+  color: #172033;
+  background: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f5f7fb;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* =========================================================
+   APP
+   ========================================================= */
+
+.app {
+  min-height: 100vh;
+  background: #f5f7fb;
+}
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.header {
+  background: #101c33;
+  color: white;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
+}
+
+.header-inner {
+  max-width: 1250px;
+  margin: 0 auto;
+  min-height: 74px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 25px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.brand-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.brand-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
+}
+
+.brand-title {
+  font-size: 19px;
+  line-height: 1.1;
+  font-weight: 750;
+  letter-spacing: -0.3px;
+}
+
+.brand-subtitle {
+  margin-top: 3px;
+  color: #aebbd0;
+  font-size: 12px;
+}
+
+/* =========================================================
+   NAV
+   ========================================================= */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nav-button {
+  border: 0;
+  background: transparent;
+  color: #c5d0e1;
+  padding: 9px 12px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: 0.18s ease;
+}
+
+.nav-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.nav-button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: white;
+}
+
+.nav-button.active {
+  background: #2563eb;
+  color: white;
+}
+
+/* =========================================================
+   MAIN
+   ========================================================= */
+
+.main-container {
+  max-width: 1250px;
+  margin: 0 auto;
+  padding: 30px 24px 50px;
+}
+
+.screen {
+  width: 100%;
+}
+
+/* =========================================================
+   MENSAJES
+   ========================================================= */
+
+.message {
+  padding: 13px 16px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+  font-size: 14px;
+}
+
+.loading {
+  padding: 50px;
+  text-align: center;
+  color: #64748b;
+}
+
+/* =========================================================
+   INICIO
+   ========================================================= */
+
+.welcome {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 30px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.welcome-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.welcome-icon svg {
+  width: 27px;
+  height: 27px;
+  stroke-width: 1.9;
+}
+
+.welcome h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 27px;
+  letter-spacing: -0.6px;
+}
+
+.welcome p {
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 14px;
+}
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dashboard-card {
+  background: white;
+  border: 1px solid #e4e9f0;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  transition: 0.18s ease;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 20px rgba(15, 23, 42, 0.07);
+}
+
+.dashboard-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dashboard-card-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
+}
+
+.dashboard-number {
+  font-size: 25px;
+  line-height: 1;
+  font-weight: 750;
+  color: #111827;
+}
+
+.dashboard-label {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* =========================================================
+   ACCIONES RÁPIDAS
+   ========================================================= */
+
+.quick-actions {
+  background: white;
+  border: 1px solid #e4e9f0;
+  border-radius: 14px;
+  padding: 22px;
+}
+
+.quick-actions h2 {
+  margin: 0 0 15px;
+  font-size: 16px;
+  color: #172033;
+}
+
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.quick-action {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 11px;
+  padding: 14px 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  font-weight: 600;
+  font-size: 13px;
+  transition: 0.18s ease;
+}
+
+.quick-action:hover {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+  color: #1d4ed8;
+}
+
+.quick-action svg {
+  width: 18px;
+  height: 18px;
+  color: #2563eb;
+  stroke-width: 2;
+}
+
+/* =========================================================
+   ENCABEZADOS DE PÁGINA
+   ========================================================= */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 25px;
+  letter-spacing: -0.4px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+/* =========================================================
+   BOTONES
+   ========================================================= */
+
+.button {
+  border: 0;
+  border-radius: 9px;
+  min-height: 40px;
+  padding: 9px 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 650;
+  transition: 0.18s ease;
+}
+
+.button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.button.primary {
+  background: #2563eb;
+  color: white;
+}
+
+.button.primary:hover {
+  background: #1d4ed8;
+}
+
+.button.secondary {
+  background: white;
+  color: #334155;
+  border: 1px solid #d7dee8;
+}
+
+.button.secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.button.danger {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+.button.danger:hover {
+  background: #ffe4e6;
+}
+
+.back-button {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  padding: 7px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.back-button:hover {
+  color: #2563eb;
+}
+
+.back-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* =========================================================
+   BUSCADOR
+   ========================================================= */
+
+.search-box {
+  background: white;
+  border: 1px solid #dfe5ec;
+  border-radius: 11px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 13px;
+  gap: 9px;
+  margin-bottom: 17px;
+}
+
+.search-box svg {
+  width: 18px;
+  height: 18px;
+  color: #94a3b8;
+}
+
+.search-box input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #1e293b;
+  background: transparent;
+  font-size: 14px;
+}
+
+.search-box input::placeholder {
+  color: #94a3b8;
+}
+
+/* =========================================================
+   VEHÍCULOS
+   ========================================================= */
+
+.vehicle-list {
+  display: grid;
+  gap: 11px;
+}
+
+.vehicle-card {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 13px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  transition: 0.18s ease;
+}
+
+.vehicle-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+}
+
+.vehicle-card-main {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.vehicle-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vehicle-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.vehicle-patente {
+  display: inline-flex;
+  align-items: center;
+  background: #eef2f7;
+  border-radius: 5px;
+  padding: 3px 7px;
+  color: #344054;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.vehicle-name {
+  color: #172033;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.vehicle-owner {
+  color: #667085;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.vehicle-card-side {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+}
+
+.vehicle-card-side svg {
+  color: #98a2b3;
+  width: 17px;
+  height: 17px;
+}
+
+/* =========================================================
+   FORMULARIOS
+   ========================================================= */
+
+.form-panel {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.form-panel h2 {
+  margin: 0 0 20px;
+  font-size: 17px;
+  color: #172033;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 17px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group.full {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  border: 1px solid #d7dee8;
+  border-radius: 9px;
+  background: white;
+  color: #172033;
+  padding: 10px 12px;
+  outline: none;
+  font-size: 13px;
+  transition: 0.15s ease;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 95px;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.09);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 22px;
+}
+
+/* =========================================================
+   FICHA VEHÍCULO
+   ========================================================= */
+
+.vehicle-header {
+  background: #101c33;
+  color: white;
+  border-radius: 16px;
+  padding: 23px;
+  margin-bottom: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.vehicle-header-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.large-vehicle-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.large-vehicle-icon svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.8;
+}
+
+.vehicle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vehicle-title-row h1 {
+  margin: 0;
+  font-size: 23px;
+  letter-spacing: -0.4px;
+}
+
+.vehicle-plate-large {
+  background: white;
+  color: #172033;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+}
+
+.vehicle-header-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.vehicle-header .button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.vehicle-header .button.secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* =========================================================
+   DETALLES
+   ========================================================= */
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.detail-card {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 12px;
+  padding: 15px;
+  min-height: 90px;
+}
+
+.detail-icon {
+  color: #2563eb;
+  margin-bottom: 9px;
+}
+
+.detail-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.detail-label {
+  color: #98a2b3;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.detail-value {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 650;
+  margin-top: 4px;
+}
+
+.detail-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.detail-link:hover {
+  text-decoration: underline;
+}
+
+/* =========================================================
+   PANELES
+   ========================================================= */
+
+.info-panel,
+.parts-section,
+.danger-zone {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 18px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.section-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: #172033;
+}
+
+.section-header svg {
+  width: 18px;
+  height: 18px;
+  color: #2563eb;
+}
+
+/* =========================================================
+   HISTORIAL
+   ========================================================= */
+
+.history-list {
+  display: grid;
+  gap: 11px;
+}
+
+.history-card {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 12px;
+  padding: 17px;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.history-date {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 750;
+  margin-bottom: 6px;
+}
+
+.history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-main h3 {
+  margin: 0;
+  color: #172033;
+  font-size: 14px;
+}
+
+.history-main p {
+  color: #667085;
+  font-size: 12px;
+  margin: 5px 0 0;
+  line-height: 1.5;
+}
+
+.history-right {
+  text-align: right;
+  min-width: 105px;
+}
+
+.history-right strong {
+  color: #172033;
+  font-size: 15px;
+}
+
+/* =========================================================
+   REPUESTOS
+   ========================================================= */
+
+.parts-list {
+  display: grid;
+  gap: 8px;
+}
+
+.part-row,
+.part-display {
+  border: 1px solid #e5e9ef;
+  border-radius: 9px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr 90px 120px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.part-display {
+  grid-template-columns: 1fr 80px 110px;
+}
+
+.part-row input {
+  width: 100%;
+  border: 1px solid #d7dee8;
+  border-radius: 7px;
+  padding: 8px;
+  outline: none;
+  font-size: 12px;
+}
+
+.part-row input:focus {
+  border-color: #60a5fa;
+}
+
+.icon-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button:hover {
+  background: #fff1f2;
+  color: #e11d48;
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* =========================================================
+   CLIENTES
+   ========================================================= */
+
+.client-list {
+  display: grid;
+  gap: 11px;
+}
+
+.client-card {
+  background: white;
+  border: 1px solid #e1e7ef;
+  border-radius: 13px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+.client-card-main {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.client-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.client-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.client-title {
+  color: #172033;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.client-info {
+  color: #667085;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.client-card-side {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.large-client-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 13px;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.large-client-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* =========================================================
+   ESTADOS VACÍOS
+   ========================================================= */
+
+.empty-state {
+  background: white;
+  border: 1px dashed #d5dce5;
+  border-radius: 13px;
+  padding: 45px 20px;
+  text-align: center;
+  color: #64748b;
+}
+
+.empty-state svg {
+  width: 30px;
+  height: 30px;
+  color: #94a3b8;
+  margin-bottom: 10px;
+}
+
+.empty-state h3 {
+  margin: 0;
+  color: #475569;
+  font-size: 15px;
+}
+
+.empty-state p {
+  margin: 5px 0 0;
+  font-size: 12px;
+}
+
+.muted {
+  color: #98a2b3;
+}
+
+/* =========================================================
+   ZONA PELIGRO
+   ========================================================= */
+
+.danger-zone {
+  border-color: #fee2e2;
+}
+
+.danger-zone h2 {
+  color: #991b1b;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+/* =========================================================
+   QR
+   ========================================================= */
+
+.qr-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 900px) {
+  .header-inner {
+    flex-direction: column;
+    align-items: stretch;
+    padding-top: 13px;
+    padding-bottom: 10px;
+    gap: 10px;
+  }
+
+  .brand {
+    justify-content: center;
+  }
+
+  .nav {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .detail-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 650px) {
+  .main-container {
+    padding: 20px 14px 35px;
+  }
+
+  .welcome {
+    padding: 21px;
+  }
+
+  .welcome h1 {
+    font-size: 22px;
+  }
+
+  .dashboard-grid,
+  .quick-actions-grid,
+  .form-grid,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-group.full {
+    grid-column: auto;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-header .button {
+    width: 100%;
+  }
+
+  .vehicle-card,
+  .client-card {
+    align-items: flex-start;
+  }
+
+  .vehicle-card-side,
+  .client-card-side {
+    align-self: center;
+  }
+
+  .vehicle-header {
+    flex-direction: column;
+    padding: 19px;
+  }
+
+  .vehicle-header-actions {
+    width: 100%;
+  }
+
+  .vehicle-header-actions .button {
+    flex: 1;
+  }
+
+  .history-card {
+    flex-direction: column;
+  }
+
+  .history-right {
+    text-align: left;
+  }
+
+  .part-row,
+  .part-display {
+    grid-template-columns: 1fr;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+
+  .form-actions .button {
+    width: 100%;
+  }
+
+  .nav-button {
+    padding: 8px 9px;
+    font-size: 12px;
+  }
+}
+
+/* =========================================================
+   IMPRESIÓN
+   ========================================================= */
+
+@media print {
+  .header,
+  .nav,
+  .button,
+  .back-button,
+  .search-box,
+  .form-actions,
+  .vehicle-header-actions,
+  .danger-zone {
+    display: none !important;
+  }
+
+  body,
+  .app {
+    background: white;
+  }
+
+  .main-container {
+    max-width: none;
+    padding: 0;
+  }
+
+  .vehicle-header {
+    color: black;
+    background: white;
+    border: 1px solid #ddd;
+  }
+
+  .vehicle-title-row h1 {
+    color: black;
+  }
+
+  .vehicle-plate-large {
+    border: 1px solid #aaa;
+  }
+
+  .detail-card,
+  .info-panel,
+  .history-card,
+  .parts-section {
+    break-inside: avoid;
+  }
+}
