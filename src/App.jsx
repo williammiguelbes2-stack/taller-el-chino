@@ -1545,8 +1545,7 @@ function App() {
 
   function urlPublicaVehiculo(vehiculo) {
     return (
-      window.location.origin +
-      window.location.pathname +
+      "https://taller-el-chino.vercel.app/" +
       `?vehiculo=${vehiculo.id}`
     )
   }
