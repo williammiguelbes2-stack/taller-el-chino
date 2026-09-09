@@ -24,6 +24,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { supabase } from './supabaseClient'
+import { QRCodeCanvas } from 'qrcode.react'
 import './App.css'
 
 function fechaLocal(valor = new Date()) {
@@ -56,6 +57,14 @@ function textoSeguro(valor) {
   return valor ?? ''
 }
 
+function totalRepuestos(partes = []) {
+  return partes.reduce((total, parte) => {
+    const cantidad = Number(parte.cantidad || 1)
+    const precio = Number(parte.precio || 0)
+    return total + cantidad * precio
+  }, 0)
+}
+
 function App() {
   const params = new URLSearchParams(window.location.search)
   const modoPublico = params.has('vehiculo')
@@ -68,6 +77,8 @@ function App() {
   const [clientes, setClientes] = useState([])
   const [trabajos, setTrabajos] = useState([])
   const [trabajoPartes, setTrabajoPartes] = useState([])
+  const [trabajoFotos, setTrabajoFotos] = useState([])
+  const [fotosTrabajoForm, setFotosTrabajoForm] = useState([])
 
   const [vehiculoSeleccionado, setVehiculoSeleccionado] =
     useState(null)
@@ -87,6 +98,9 @@ function App() {
   const [partesPublicos, setPartesPublicos] =
     useState([])
 
+  const [fotosPublicas, setFotosPublicas] =
+    useState([])
+
   const [busquedaVehiculo, setBusquedaVehiculo] =
     useState('')
 
@@ -100,6 +114,8 @@ function App() {
   const [error, setError] = useState('')
 
   const [mostrarQR, setMostrarQR] = useState(false)
+  const [fotoVehiculo, setFotoVehiculo] = useState(null)
+  const [fotoAmpliada, setFotoAmpliada] = useState(null)
 
   const [formVehiculo, setFormVehiculo] = useState({
     patente: '',
@@ -110,6 +126,7 @@ function App() {
     kilometraje: '',
     cliente_id: '',
     observaciones: '',
+    foto_url: '',
   })
 
   const [formCliente, setFormCliente] = useState({
@@ -261,9 +278,20 @@ function App() {
       }
     }
 
+    let fotos = []
+    if (ids.length > 0) {
+      const resultadoFotos = await supabase
+        .from('service_photos')
+        .select('*')
+        .in('service_record_id', ids)
+        .order('created_at', { ascending: true })
+      if (!resultadoFotos.error) fotos = resultadoFotos.data || []
+    }
+
     setVehiculoPublico(vehiculo)
     setTrabajosPublicos(servicios || [])
     setPartesPublicos(partes)
+    setFotosPublicas(fotos)
 
     setCargando(false)
   }
@@ -344,7 +372,9 @@ function App() {
       kilometraje: '',
       cliente_id: cliente.id,
       observaciones: '',
+      foto_url: '',
     })
+    setFotoVehiculo(null)
 
     setClienteSeleccionado(cliente)
 
@@ -363,7 +393,9 @@ function App() {
       kilometraje: '',
       cliente_id: '',
       observaciones: '',
+      foto_url: '',
     })
+    setFotoVehiculo(null)
 
     setPantalla('nuevo')
   }
@@ -387,6 +419,8 @@ function App() {
     })
 
     setPartesForm([])
+    setFotosTrabajoForm([])
+    setTrabajoFotos([])
 
     setTrabajoSeleccionado(null)
 
@@ -398,6 +432,10 @@ function App() {
       ...formVehiculo,
       [e.target.name]: e.target.value,
     })
+  }
+
+  function cambiarFotoVehiculo(e) {
+    setFotoVehiculo(e.target.files?.[0] || null)
   }
 
   function cambiarCliente(e) {
@@ -414,6 +452,10 @@ function App() {
     })
   }
 
+  function cambiarFotosTrabajo(e) {
+    setFotosTrabajoForm(Array.from(e.target.files || []))
+  }
+
   function agregarParte() {
     setPartesForm([
       ...partesForm,
@@ -421,6 +463,7 @@ function App() {
         nombre: '',
         marca: '',
         cantidad: '1',
+        precio: '',
         observaciones: '',
       },
     ])
@@ -657,12 +700,25 @@ function App() {
       return
     }
 
+    let vehiculoFinal = vehiculo
+    if (fotoVehiculo) {
+      try {
+        const fotoUrl = await subirFotoVehiculo(fotoVehiculo, vehiculo.id)
+        const { data: actualizado, error: errorFoto } = await supabase.from('vehicles').update({ foto_url: fotoUrl }).eq('id', vehiculo.id).select('*, customers(*)').single()
+        if (errorFoto) throw errorFoto
+        vehiculoFinal = actualizado
+      } catch (e) {
+        setError(`Vehículo guardado, pero no se pudo subir la foto: ${e.message}`)
+      }
+    }
+
     setVehiculos((actuales) => [
-      vehiculo,
+      vehiculoFinal,
       ...actuales,
     ])
 
-    setVehiculoSeleccionado(vehiculo)
+    setVehiculoSeleccionado(vehiculoFinal)
+    setFotoVehiculo(null)
 
     setMensaje(
       formVehiculo.cliente_id
@@ -769,6 +825,11 @@ function App() {
               ? Number(parte.cantidad)
               : 1,
 
+          precio:
+            parte.precio
+              ? Number(parte.precio)
+              : 0,
+
           observaciones:
             parte.observaciones.trim() ||
             null,
@@ -790,6 +851,15 @@ function App() {
 
         setGuardando(false)
         return
+      }
+    }
+
+    let fotosGuardadas = []
+    if (fotosTrabajoForm.length > 0) {
+      try {
+        fotosGuardadas = await subirFotosTrabajo(fotosTrabajoForm, trabajo.id, vehiculoSeleccionado.id)
+      } catch (e) {
+        setError(`El trabajo se guardó, pero no se pudieron subir las fotos: ${e.message}`)
       }
     }
 
@@ -844,6 +914,18 @@ function App() {
       'Trabajo guardado correctamente.'
     )
 
+    setTrabajoPartes(
+      partesValidas.map((parte, indice) => ({
+        id: `nuevo-${indice}`,
+        service_record_id: trabajo.id,
+        nombre: parte.nombre.trim(),
+        marca: parte.marca.trim() || null,
+        cantidad: parte.cantidad ? Number(parte.cantidad) : 1,
+        precio: parte.precio ? Number(parte.precio) : 0,
+        observaciones: parte.observaciones.trim() || null,
+      }))
+    )
+
     setGuardando(false)
 
     setFormTrabajo({
@@ -857,6 +939,8 @@ function App() {
     })
 
     setPartesForm([])
+    setFotosTrabajoForm([])
+    setTrabajoFotos(fotosGuardadas)
 
     setTimeout(() => {
       setMensaje('')
@@ -916,8 +1000,17 @@ function App() {
       )
     }
 
+    const { data: fotos, error: errorFotos } = await supabase
+      .from('service_photos')
+      .select('*')
+      .eq('service_record_id', trabajo.id)
+      .order('created_at', { ascending: true })
+
+    if (errorFotos) console.error(errorFotos)
+
     setTrabajoSeleccionado(trabajo)
     setTrabajoPartes(data || [])
+    setTrabajoFotos(fotos || [])
 
     setCargando(false)
 
@@ -1019,6 +1112,8 @@ function App() {
         marca: textoSeguro(parte.marca),
         cantidad:
           parte.cantidad?.toString() || '1',
+        precio:
+          parte.precio?.toString() || '',
         observaciones:
           textoSeguro(parte.observaciones),
       }))
@@ -1068,18 +1163,10 @@ function App() {
           : null,
     }
 
-    const {
-      data: trabajoActualizado,
-      error: errorTrabajo,
-    } = await supabase
+    const { error: errorTrabajo } = await supabase
       .from('service_records')
       .update(payload)
-      .eq(
-        'id',
-        trabajoSeleccionado.id
-      )
-      .select('*')
-      .single()
+      .eq('id', trabajoSeleccionado.id)
 
     if (errorTrabajo) {
       setError(
@@ -1088,6 +1175,11 @@ function App() {
 
       setGuardando(false)
       return
+    }
+
+    const trabajoActualizado = {
+      ...trabajoSeleccionado,
+      ...payload,
     }
 
     await supabase
@@ -1103,8 +1195,10 @@ function App() {
         parte.nombre.trim() !== ''
     )
 
+    let partesGuardadas = []
+
     if (partesValidas.length > 0) {
-      await supabase
+      const resultadoPartes = await supabase
         .from('service_parts')
         .insert(
           partesValidas.map((parte) => ({
@@ -1123,12 +1217,28 @@ function App() {
                 ? Number(parte.cantidad)
                 : 1,
 
+            precio:
+              parte.precio
+                ? Number(parte.precio)
+                : 0,
+
             observaciones:
               parte.observaciones.trim() ||
               null,
           }))
         )
+        .select('*')
+
+      if (resultadoPartes.error) {
+        setError(`El trabajo se actualizó, pero no se pudieron guardar los repuestos: ${resultadoPartes.error.message}`)
+        setGuardando(false)
+        return
+      }
+
+      partesGuardadas = resultadoPartes.data || []
     }
+
+    setTrabajoPartes(partesGuardadas)
 
     setTrabajos((actuales) =>
       actuales.map((trabajo) =>
@@ -1195,7 +1305,9 @@ function App() {
         textoSeguro(
           vehiculoSeleccionado.observaciones
         ),
+      foto_url: textoSeguro(vehiculoSeleccionado.foto_url),
     })
+    setFotoVehiculo(null)
 
     setPantalla('editarVehiculo')
   }
@@ -1281,15 +1393,28 @@ function App() {
       return
     }
 
-    setVehiculoSeleccionado(data)
+    let vehiculoFinal = data
+    if (fotoVehiculo) {
+      try {
+        const fotoUrl = await subirFotoVehiculo(fotoVehiculo, data.id)
+        const { data: actualizado, error: errorFoto } = await supabase.from('vehicles').update({ foto_url: fotoUrl }).eq('id', data.id).select('*, customers(*)').single()
+        if (errorFoto) throw errorFoto
+        vehiculoFinal = actualizado
+      } catch (e) {
+        setError(`Vehículo actualizado, pero no se pudo subir la foto: ${e.message}`)
+      }
+    }
+
+    setVehiculoSeleccionado(vehiculoFinal)
 
     setVehiculos((actuales) =>
       actuales.map((vehiculo) =>
         vehiculo.id === data.id
-          ? data
+          ? vehiculoFinal
           : vehiculo
       )
     )
+    setFotoVehiculo(null)
 
     setGuardando(false)
 
@@ -1552,6 +1677,112 @@ function App() {
 
   function abrirQR() {
     setMostrarQR(true)
+  }
+
+  async function subirFotoVehiculo(archivo, vehiculoId) {
+    if (!archivo) return null
+    const extension = archivo.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const ruta = `${vehiculoId}/${Date.now()}.${extension}`
+    const { error } = await supabase.storage.from('vehiculos-fotos').upload(ruta, archivo, {
+      upsert: true,
+      contentType: archivo.type || 'image/jpeg',
+    })
+    if (error) throw error
+    const { data } = supabase.storage.from('vehiculos-fotos').getPublicUrl(ruta)
+    return data.publicUrl
+  }
+
+  async function subirFotosTrabajo(archivos, trabajoId, vehiculoId) {
+    const fotosGuardadas = []
+    for (const archivo of archivos || []) {
+      const nombreSeguro = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const ruta = `${vehiculoId}/${trabajoId}/${Date.now()}-${nombreSeguro}`
+      const { error: errorUpload } = await supabase.storage
+        .from('trabajos-fotos')
+        .upload(ruta, archivo, { upsert: false, contentType: archivo.type || 'image/jpeg' })
+      if (errorUpload) throw errorUpload
+      const { data: urlData } = supabase.storage.from('trabajos-fotos').getPublicUrl(ruta)
+      const { data: foto, error: errorFoto } = await supabase
+        .from('service_photos')
+        .insert({ service_record_id: trabajoId, vehicle_id: vehiculoId, foto_url: urlData.publicUrl, nombre_archivo: archivo.name })
+        .select('*').single()
+      if (errorFoto) throw errorFoto
+      fotosGuardadas.push(foto)
+    }
+    return fotosGuardadas
+  }
+
+  async function eliminarVehiculo() {
+    if (!vehiculoSeleccionado) return
+    if (!window.confirm(`¿Eliminar definitivamente el vehículo ${vehiculoSeleccionado.patente}?\n\nTambién se eliminarán su historial y repuestos.`)) return
+    setGuardando(true)
+    limpiarMensajes()
+    const { data: registros, error: e1 } = await supabase.from('service_records').select('id').eq('vehicle_id', vehiculoSeleccionado.id)
+    if (e1) { setError(`No se pudo preparar la eliminación: ${e1.message}`); setGuardando(false); return }
+    const ids = (registros || []).map(x => x.id)
+    if (ids.length) {
+      const { error: e2 } = await supabase.from('service_parts').delete().in('service_record_id', ids)
+      if (e2) { setError(`No se pudieron eliminar los repuestos: ${e2.message}`); setGuardando(false); return }
+      const { error: e3 } = await supabase.from('service_records').delete().eq('vehicle_id', vehiculoSeleccionado.id)
+      if (e3) { setError(`No se pudo eliminar el historial: ${e3.message}`); setGuardando(false); return }
+    }
+    const { error } = await supabase.from('vehicles').delete().eq('id', vehiculoSeleccionado.id)
+    if (error) { setError(`No se pudo eliminar el vehículo: ${error.message}`); setGuardando(false); return }
+    setVehiculos(a => a.filter(v => v.id !== vehiculoSeleccionado.id))
+    setVehiculoSeleccionado(null)
+    setClienteSeleccionado(null)
+    setGuardando(false)
+    setMensaje('Vehículo eliminado correctamente.')
+    setTimeout(() => { setMensaje(''); setPantalla('vehiculos') }, 700)
+  }
+
+  async function eliminarCliente() {
+    if (!clienteSeleccionado) return
+    const vehiculosCliente = obtenerVehiculosCliente(clienteSeleccionado.id)
+    if (vehiculosCliente.length) {
+      setError('No se puede eliminar este cliente porque todavía tiene vehículos. Eliminá o reasigná primero sus vehículos.')
+      return
+    }
+    if (!window.confirm(`¿Eliminar definitivamente al cliente ${clienteSeleccionado.nombre}?`)) return
+    setGuardando(true)
+    limpiarMensajes()
+    const { error } = await supabase.from('customers').delete().eq('id', clienteSeleccionado.id)
+    if (error) { setError(`No se pudo eliminar el cliente: ${error.message}`); setGuardando(false); return }
+    setClientes(a => a.filter(c => c.id !== clienteSeleccionado.id))
+    setClienteSeleccionado(null)
+    setGuardando(false)
+    setMensaje('Cliente eliminado correctamente.')
+    setTimeout(() => { setMensaje(''); setPantalla('clientes') }, 700)
+  }
+
+  function imprimirComprobanteTrabajo() {
+    if (!trabajoSeleccionado) return
+    const cliente = vehiculoSeleccionado?.customers || clienteSeleccionado
+    const numero = `EC-${String(trabajoSeleccionado.id).slice(0, 8).toUpperCase()}`
+    const total = Number(trabajoSeleccionado.importe || 0)
+    const partes = trabajoPartes || []
+    const ventana = window.open('', '_blank', 'width=800,height=900')
+    if (!ventana) return
+    ventana.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Comprobante ${numero}</title><style>body{font-family:Arial;max-width:760px;margin:auto;padding:35px;color:#222}.cab{display:flex;justify-content:space-between;border-bottom:2px solid #222;padding-bottom:18px}.fila{border-bottom:1px solid #ddd;padding:9px 0;display:flex;justify-content:space-between;gap:20px}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:25px}.pie{text-align:center;color:#666;font-size:12px;margin-top:45px}</style></head><body><div class="cab"><div><h1>EL CHINO</h1><div>Taller Mecánico</div></div><div><strong>COMPROBANTE DE TRABAJO</strong><br>${numero}<br>${formatoFecha(trabajoSeleccionado.fecha)}</div></div><p><strong>Cliente:</strong> ${textoSeguro(cliente?.nombre)||'-'}</p><p><strong>Teléfono:</strong> ${textoSeguro(cliente?.telefono)||'-'}</p><p><strong>Vehículo:</strong> ${textoSeguro(vehiculoSeleccionado?.marca)} ${textoSeguro(vehiculoSeleccionado?.modelo)}</p><p><strong>Patente:</strong> ${textoSeguro(vehiculoSeleccionado?.patente)||'-'}</p><p><strong>Kilometraje:</strong> ${trabajoSeleccionado.kilometraje ? trabajoSeleccionado.kilometraje+' km':'-'}</p><h3>Trabajo realizado</h3><p>${textoSeguro(trabajoSeleccionado.descripcion)}</p>${trabajoSeleccionado.tipo_trabajo?`<p><strong>Tipo:</strong> ${textoSeguro(trabajoSeleccionado.tipo_trabajo)}</p>`:''}${trabajoSeleccionado.observaciones?`<p><strong>Observaciones:</strong> ${textoSeguro(trabajoSeleccionado.observaciones)}</p>`:''}${partes.length?`<h3>Repuestos</h3>${partes.map(x=>`<div class="fila"><div><strong>${textoSeguro(x.nombre)}</strong>${x.marca?' — '+textoSeguro(x.marca):''} × ${x.cantidad||1}</div><div>${formatoImporte(Number(x.precio||0)*Number(x.cantidad||1))}</div></div>`).join('')}`:''}<div class="fila"><div><strong>Mano de obra</strong></div><div>${formatoImporte(total)}</div></div><div class="total">TOTAL: ${formatoImporte(total + totalRepuestos(partes))}</div><div class="pie">Comprobante interno de trabajo de EL CHINO.<br>No constituye por sí mismo una factura electrónica fiscal.</div></body></html>`)
+    ventana.document.close(); ventana.focus(); ventana.print()
+  }
+
+  function imprimirQR() {
+    if (!vehiculoSeleccionado) return
+    const canvas = document.querySelector('[data-qr-vehiculo] canvas')
+    const dataUrl = canvas?.toDataURL('image/png')
+    if (!dataUrl) { setError('No se pudo preparar el QR para imprimir.'); return }
+    const ventana = window.open('', '_blank', 'width=700,height=800')
+    if (!ventana) return
+    ventana.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>QR - ${vehiculoSeleccionado.patente}</title><style>body{font-family:Arial;text-align:center;padding:40px}img{width:350px;height:350px}</style></head><body><h1>EL CHINO</h1><h2>Historial del vehículo</h2><h3>${vehiculoSeleccionado.marca} ${vehiculoSeleccionado.modelo}</h3><h2>${vehiculoSeleccionado.patente}</h2><img src="${dataUrl}"><p>Escaneá el código para consultar el historial.</p></body></html>`)
+    ventana.document.close(); ventana.focus(); ventana.print()
+  }
+
+  async function copiarEnlacePublico() {
+    if (!vehiculoSeleccionado) return
+    const url = urlPublicaVehiculo(vehiculoSeleccionado)
+    try { await navigator.clipboard.writeText(url); setMensaje('Enlace público copiado.'); setTimeout(()=>setMensaje(''),1500) }
+    catch { window.prompt('Copiá este enlace:', url) }
   }
 
   function imprimirHistorial() {
@@ -1981,6 +2212,19 @@ function App() {
                             </div>
                           )}
 
+                          {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).length > 0 && (
+                            <div style={{ marginTop:'12px' }}>
+                              <strong>Fotos:</strong>
+                              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'8px', marginTop:'8px' }}>
+                                {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).map((foto) => (
+                                  <a key={foto.id} href={foto.foto_url} target="_blank" rel="noreferrer">
+                                    <img src={foto.foto_url} alt="Foto del trabajo" style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'8px' }} />
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                         </div>
                       )
                     }
@@ -2370,6 +2614,12 @@ function App() {
 
               </div>
 
+              {vehiculoSeleccionado.foto_url && (
+                <div style={{ textAlign:'center', margin:'15px 0' }}>
+                  <img src={vehiculoSeleccionado.foto_url} alt="Vehículo" style={{maxWidth:'100%',maxHeight:'280px',borderRadius:'12px',objectFit:'cover'}} />
+                </div>
+              )}
+
               {clienteSeleccionado && (
                 <div className="panel">
 
@@ -2529,6 +2779,11 @@ function App() {
                   Imprimir historial
                 </button>
 
+
+                <button className="action-button" onClick={eliminarVehiculo} disabled={guardando}>
+                  <Trash2 size={18} />
+                  Eliminar vehículo
+                </button>
               </div>
 
               <div className="panel">
@@ -2903,6 +3158,13 @@ function App() {
                   />
                 </div>
 
+                <div className="form-field">
+                  <label>Foto del vehículo</label>
+                  <input type="file" accept="image/*" onChange={cambiarFotoVehiculo} />
+                  {formVehiculo.foto_url && <img src={formVehiculo.foto_url} alt="Vehículo" style={{width:'140px',height:'90px',objectFit:'cover',borderRadius:'10px',marginTop:'8px'}} />}
+                  {fotoVehiculo && <small>Foto seleccionada: {fotoVehiculo.name}</small>}
+                </div>
+
               </div>
 
               <div className="form-field">
@@ -3089,6 +3351,13 @@ function App() {
                       cambiarVehiculo
                     }
                   />
+                </div>
+
+                <div className="form-field">
+                  <label>Foto del vehículo</label>
+                  <input type="file" accept="image/*" onChange={cambiarFotoVehiculo} />
+                  {formVehiculo.foto_url && <img src={formVehiculo.foto_url} alt="Vehículo" style={{width:'140px',height:'90px',objectFit:'cover',borderRadius:'10px',marginTop:'8px'}} />}
+                  {fotoVehiculo && <small>Foto seleccionada: {fotoVehiculo.name}</small>}
                 </div>
 
               </div>
@@ -3476,7 +3745,7 @@ function App() {
 
                   <div className="form-field">
                     <label>
-                      Importe
+                      Mano de obra
                     </label>
 
                     <input
@@ -3491,6 +3760,15 @@ function App() {
                       min="0"
                       step="0.01"
                       placeholder="Ej: 300000"
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label>Importe total</label>
+                    <input
+                      type="text"
+                      value={formatoImporte(Number(formTrabajo.importe || 0) + totalRepuestos(partesForm))}
+                      readOnly
                     />
                   </div>
 
@@ -3535,6 +3813,14 @@ function App() {
                     rows="3"
                   />
 
+                </div>
+
+                <div className="form-field">
+                  <label>Fotos del trabajo</label>
+                  <input type="file" accept="image/*" multiple onChange={cambiarFotosTrabajo} />
+                  {fotosTrabajoForm.length > 0 && (
+                    <small>{fotosTrabajoForm.length} foto(s) seleccionada(s).</small>
+                  )}
                 </div>
 
                 <hr />
@@ -3683,6 +3969,20 @@ function App() {
                                 e.target.value
                               )
                             }
+                          />
+                        </div>
+
+                        <div className="form-field">
+                          <label>Precio unitario</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={parte.precio}
+                            onChange={(e) =>
+                              cambiarParte(indice, 'precio', e.target.value)
+                            }
+                            placeholder="$"
                           />
                         </div>
 
@@ -4102,6 +4402,24 @@ function App() {
 
               </div>
 
+              {trabajoFotos.length > 0 && (
+                <div className="panel">
+                  <h3>Fotos del trabajo</h3>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:'12px' }}>
+                    {trabajoFotos.map((foto) => (
+                      <button
+                        key={foto.id}
+                        type="button"
+                        onClick={() => setFotoAmpliada(foto.foto_url)}
+                        style={{ border: '0', padding: 0, background: 'transparent', cursor: 'zoom-in' }}
+                      >
+                        <img src={foto.foto_url} alt={foto.nombre_archivo || 'Foto del trabajo'} style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'10px', display:'block' }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="vehicle-actions">
 
                 <button
@@ -4112,6 +4430,11 @@ function App() {
                 >
                   <Pencil size={18} />
                   Editar trabajo
+                </button>
+
+                <button className="action-button" onClick={imprimirComprobanteTrabajo}>
+                  <FileText size={18} />
+                  Comprobante
                 </button>
 
                 <button
@@ -4214,7 +4537,7 @@ function App() {
 
                   <div className="form-field">
                     <label>
-                      Importe
+                      Mano de obra
                     </label>
 
                     <input
@@ -4226,6 +4549,16 @@ function App() {
                       onChange={
                         cambiarTrabajo
                       }
+                    />
+                  </div>
+
+
+                  <div className="form-field">
+                    <label>Importe total</label>
+                    <input
+                      type="text"
+                      value={formatoImporte(Number(formTrabajo.importe || 0) + totalRepuestos(partesForm))}
+                      readOnly
                     />
                   </div>
 
@@ -4338,6 +4671,20 @@ function App() {
                                 e.target.value
                               )
                             }
+                          />
+                        </div>
+
+                        <div className="form-field">
+                          <label>Precio unitario</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={parte.precio}
+                            onChange={(e) =>
+                              cambiarParte(indice, 'precio', e.target.value)
+                            }
+                            placeholder="$"
                           />
                         </div>
 
@@ -4618,6 +4965,11 @@ function App() {
                   Agregar vehículo
                 </button>
 
+
+                <button className="action-button" onClick={eliminarCliente} disabled={guardando}>
+                  <Trash2 size={18} />
+                  Eliminar cliente
+                </button>
               </div>
 
               <div className="panel">
@@ -4910,16 +5262,14 @@ function App() {
                 }}
               >
 
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-                    urlPublicaVehiculo(
-                      vehiculoSeleccionado
-                    )
-                  )}`}
-                  alt="QR del vehículo"
-                  width="300"
-                  height="300"
-                />
+                <div data-qr-vehiculo>
+                  <QRCodeCanvas
+                    value={urlPublicaVehiculo(vehiculoSeleccionado)}
+                    size={300}
+                    level="H"
+                    includeMargin
+                  />
+                </div>
 
               </div>
 
@@ -4992,13 +5342,7 @@ function App() {
                         }
                       </h2>
 
-                      <img
-                        src="https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(
-                          urlPublicaVehiculo(
-                            vehiculoSeleccionado
-                          )
-                        )}"
-                      />
+                      <img src="${dataUrl}" alt="QR del vehículo" />
 
                       <p>
                         Escaneá el código para consultar
@@ -5024,6 +5368,15 @@ function App() {
 
           </div>
         )}
+
+      {fotoAmpliada && (
+        <div
+          onClick={() => setFotoAmpliada(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.82)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px', cursor:'zoom-out' }}
+        >
+          <img src={fotoAmpliada} alt="Foto ampliada" style={{ maxWidth:'95vw', maxHeight:'90vh', objectFit:'contain', borderRadius:'10px' }} />
+        </div>
+      )}
 
     </div>
   )
