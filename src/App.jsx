@@ -178,6 +178,7 @@ function App() {
   const [fotoVehiculo, setFotoVehiculo] = useState(null)
   const [fotoAmpliada, setFotoAmpliada] = useState(null)
   const [mostrarMantenimiento, setMostrarMantenimiento] = useState(false)
+  const [filtroMantenimientos, setFiltroMantenimientos] = useState('todos')
   const [formMantenimiento, setFormMantenimiento] = useState({ tipo:'Cambio de aceite y filtros', fechaUltimo:'', kmUltimo:'', kmProximo:'', fechaProxima:'', notas:'' })
 
   const [formVehiculo, setFormVehiculo] = useState({
@@ -364,6 +365,37 @@ function App() {
     setCargando(false)
   }
 
+  const mantenimientosProgramados = useMemo(() => {
+    return vehiculos
+      .map((vehiculo) => {
+        const mantenimiento = obtenerMantenimiento(vehiculo)
+        if (!mantenimiento) return null
+        const estado = estadoMantenimiento(mantenimiento, vehiculo.kilometraje)
+        if (!estado || estado === 'registrado') return null
+        return { vehiculo, mantenimiento, estado }
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.estado !== b.estado) return a.estado === 'vencido' ? -1 : 1
+        const fechaA = a.mantenimiento.fechaProxima || '9999-12-31'
+        const fechaB = b.mantenimiento.fechaProxima || '9999-12-31'
+        if (fechaA !== fechaB) return fechaA.localeCompare(fechaB)
+        const kmA = Number(a.mantenimiento.kmProximo || Number.MAX_SAFE_INTEGER)
+        const kmB = Number(b.mantenimiento.kmProximo || Number.MAX_SAFE_INTEGER)
+        return kmA - kmB
+      })
+  }, [vehiculos])
+
+  const mantenimientosFiltrados = useMemo(() => {
+    if (filtroMantenimientos === 'vencidos') {
+      return mantenimientosProgramados.filter((item) => item.estado === 'vencido')
+    }
+    if (filtroMantenimientos === 'proximos') {
+      return mantenimientosProgramados.filter((item) => item.estado === 'pendiente')
+    }
+    return mantenimientosProgramados
+  }, [mantenimientosProgramados, filtroMantenimientos])
+
   function limpiarMensajes() {
     setMensaje('')
     setError('')
@@ -382,6 +414,12 @@ function App() {
   function irClientes() {
     limpiarMensajes()
     setPantalla('clientes')
+  }
+
+  function irMantenimientos() {
+    limpiarMensajes()
+    setFiltroMantenimientos('todos')
+    setPantalla('mantenimientos')
   }
 
   function abrirVehiculo(vehiculo) {
@@ -2728,6 +2766,14 @@ function App() {
 
         <button
           className="action-button"
+          onClick={irMantenimientos}
+        >
+          <CalendarDays size={17} />
+          Mantenimientos
+        </button>
+
+        <button
+          className="action-button"
           onClick={() => { limpiarMensajes(); setPantalla('presupuestos') }}
         >
           <FileText size={17} />
@@ -2834,6 +2880,19 @@ function App() {
 
               <button
                 className="card"
+                onClick={irMantenimientos}
+              >
+                <span className="card-icon">
+                  <CalendarDays />
+                </span>
+                <strong>Mantenimientos</strong>
+                <span>
+                  Consultar próximos servicios y vencimientos
+                </span>
+              </button>
+
+              <button
+                className="card"
                 onClick={() => { limpiarMensajes(); setPantalla('presupuestos') }}
               >
                 <span className="card-icon">
@@ -2848,6 +2907,88 @@ function App() {
             </section>
 
           </>
+        )}
+
+        {/* MANTENIMIENTOS */}
+
+        {pantalla === 'mantenimientos' && (
+          <section className="panel">
+
+            <button className="back" onClick={irInicio}>
+              <ArrowLeft size={17} />
+              Volver al inicio
+            </button>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'15px',flexWrap:'wrap'}}>
+              <div>
+                <span className="vehicle-label">CONTROL DEL TALLER</span>
+                <h2>Mantenimientos</h2>
+                <p>Consultá de un vistazo qué vehículos tienen próximo service o están vencidos.</p>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <strong>{mantenimientosProgramados.length}</strong>
+                <p style={{margin:0}}>programado(s)</p>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',margin:'18px 0'}}>
+              {['todos','proximos','vencidos'].map((filtro) => (
+                <button
+                  key={filtro}
+                  type="button"
+                  className="action-button"
+                  onClick={() => setFiltroMantenimientos(filtro)}
+                  style={{fontWeight: filtroMantenimientos === filtro ? 700 : 400}}
+                >
+                  {filtro === 'todos' ? `Todos (${mantenimientosProgramados.length})` : filtro === 'proximos' ? `Próximos (${mantenimientosProgramados.filter((item) => item.estado === 'pendiente').length})` : `Vencidos (${mantenimientosProgramados.filter((item) => item.estado === 'vencido').length})`}
+                </button>
+              ))}
+            </div>
+
+            {mantenimientosFiltrados.length === 0 && (
+              <div className="empty">
+                {filtroMantenimientos === 'vencidos'
+                  ? 'No hay mantenimientos vencidos.'
+                  : filtroMantenimientos === 'proximos'
+                    ? 'No hay mantenimientos próximos programados.'
+                    : 'No hay mantenimientos programados.'}
+              </div>
+            )}
+
+            {mantenimientosFiltrados.map(({vehiculo, mantenimiento, estado}) => (
+              <button
+                key={vehiculo.id}
+                className="vehicle-card"
+                onClick={() => abrirVehiculo(vehiculo)}
+                style={{width:'100%',marginBottom:'12px',textAlign:'left'}}
+              >
+                <div style={{flex:1}}>
+                  <strong>{vehiculo.patente || '-'}</strong>
+                  <p>{vehiculo.marca || ''} {vehiculo.modelo || ''}</p>
+                  <small>{mantenimiento.tipo || 'Mantenimiento'}</small>
+                </div>
+
+                <div style={{flex:1}}>
+                  <small>Último service</small>
+                  <p style={{margin:'3px 0'}}><strong>{formatoFecha(mantenimiento.fechaUltimo)}</strong>{mantenimiento.kmUltimo ? ` · ${Number(mantenimiento.kmUltimo).toLocaleString('es-AR')} km` : ''}</p>
+                  <small>Próximo service</small>
+                  <p style={{margin:'3px 0'}}>
+                    {mantenimiento.fechaProxima ? `Fecha: ${formatoFecha(mantenimiento.fechaProxima)}` : ''}
+                    {mantenimiento.fechaProxima && mantenimiento.kmProximo ? ' · ' : ''}
+                    {mantenimiento.kmProximo ? `Km: ${Number(mantenimiento.kmProximo).toLocaleString('es-AR')}` : ''}
+                  </p>
+                </div>
+
+                <div style={{minWidth:'150px',textAlign:'right'}}>
+                  <strong>{estado === 'vencido' ? '⚠ VENCIDO' : 'PRÓXIMO'}</strong>
+                  <p>{textoEstadoMantenimiento(mantenimiento, vehiculo.kilometraje)}</p>
+                </div>
+
+                <ChevronRight size={21} />
+              </button>
+            ))}
+
+          </section>
         )}
 
         {/* VEHICULOS */}
