@@ -65,6 +65,15 @@ function totalRepuestos(partes = []) {
   }, 0)
 }
 
+function totalTrabajo(trabajo, partes = []) {
+  const manoDeObra = Number(trabajo?.importe || 0)
+  const partesTrabajo = partes.filter(
+    (parte) => parte.service_record_id === trabajo?.id
+  )
+
+  return manoDeObra + totalRepuestos(partesTrabajo)
+}
+
 function App() {
   const params = new URLSearchParams(window.location.search)
   const modoPublico = params.has('vehiculo')
@@ -76,6 +85,7 @@ function App() {
   const [vehiculos, setVehiculos] = useState([])
   const [clientes, setClientes] = useState([])
   const [trabajos, setTrabajos] = useState([])
+  const [partes, setPartes] = useState([])
   const [trabajoPartes, setTrabajoPartes] = useState([])
   const [trabajoFotos, setTrabajoFotos] = useState([])
   const [fotosTrabajoForm, setFotosTrabajoForm] = useState([])
@@ -157,14 +167,16 @@ function App() {
   const [partesForm, setPartesForm] = useState([])
 
   useEffect(() => {
-    cargarDatos()
-  }, [])
+    if (!modoPublico) {
+      cargarDatos()
+    }
+  }, [modoPublico])
 
   useEffect(() => {
     if (modoPublico) {
       cargarHistorialPublico()
     }
-  }, [])
+  }, [modoPublico])
 
   async function cargarDatos() {
     setCargando(true)
@@ -174,6 +186,7 @@ function App() {
       resultadoVehiculos,
       resultadoClientes,
       resultadoTrabajos,
+      resultadoPartes,
     ] = await Promise.all([
       supabase
         .from('vehicles')
@@ -189,6 +202,10 @@ function App() {
         .from('service_records')
         .select('*')
         .order('fecha', { ascending: false }),
+
+      supabase
+        .from('service_parts')
+        .select('*'),
     ])
 
     if (resultadoVehiculos.error) {
@@ -212,9 +229,17 @@ function App() {
       )
     }
 
+    if (resultadoPartes.error) {
+      console.error(resultadoPartes.error)
+      setError(
+        `No se pudieron cargar los repuestos: ${resultadoPartes.error.message}`
+      )
+    }
+
     setVehiculos(resultadoVehiculos.data || [])
     setClientes(resultadoClientes.data || [])
     setTrabajos(resultadoTrabajos.data || [])
+    setPartes(resultadoPartes.data || [])
 
     setCargando(false)
   }
@@ -837,10 +862,12 @@ function App() {
       )
 
       const {
+        data: partesGuardadas,
         error: errorPartes,
       } = await supabase
         .from('service_parts')
         .insert(datosPartes)
+        .select('*')
 
       if (errorPartes) {
         console.error(errorPartes)
@@ -852,6 +879,11 @@ function App() {
         setGuardando(false)
         return
       }
+
+      setPartes((actuales) => [
+        ...actuales,
+        ...(partesGuardadas || []),
+      ])
     }
 
     let fotosGuardadas = []
@@ -973,7 +1005,42 @@ function App() {
       return
     }
 
+    const ids = (data || []).map(
+      (trabajo) => trabajo.id
+    )
+
+    let partesVehiculo = []
+
+    if (ids.length > 0) {
+      const resultadoPartes = await supabase
+        .from('service_parts')
+        .select('*')
+        .in('service_record_id', ids)
+
+      if (resultadoPartes.error) {
+        setError(
+          `No se pudieron cargar los repuestos: ${resultadoPartes.error.message}`
+        )
+        setCargando(false)
+        return
+      }
+
+      partesVehiculo = resultadoPartes.data || []
+    }
+
     setTrabajos(data || [])
+
+    setPartes((actuales) => {
+      const otros = actuales.filter(
+        (parte) =>
+          !ids.includes(parte.service_record_id)
+      )
+
+      return [
+        ...otros,
+        ...partesVehiculo,
+      ]
+    })
 
     setCargando(false)
 
@@ -1030,6 +1097,14 @@ function App() {
     limpiarMensajes()
 
     await supabase
+      .from('service_photos')
+      .delete()
+      .eq(
+        'service_record_id',
+        trabajoSeleccionado.id
+      )
+
+    await supabase
       .from('service_parts')
       .delete()
       .eq(
@@ -1058,6 +1133,14 @@ function App() {
       actuales.filter(
         (trabajo) =>
           trabajo.id !==
+          trabajoSeleccionado.id
+      )
+    )
+
+    setPartes((actuales) =>
+      actuales.filter(
+        (parte) =>
+          parte.service_record_id !==
           trabajoSeleccionado.id
       )
     )
@@ -1239,6 +1322,15 @@ function App() {
     }
 
     setTrabajoPartes(partesGuardadas)
+
+    setPartes((actuales) => [
+      ...actuales.filter(
+        (parte) =>
+          parte.service_record_id !==
+          trabajoSeleccionado.id
+      ),
+      ...partesGuardadas,
+    ])
 
     setTrabajos((actuales) =>
       actuales.map((trabajo) =>
@@ -1661,12 +1753,10 @@ function App() {
   const totalHistoricoVehiculo = useMemo(() => {
     return trabajosVehiculo.reduce(
       (total, trabajo) =>
-        total + Number(
-          trabajo.importe || 0
-        ),
+        total + totalTrabajo(trabajo, partes),
       0
     )
-  }, [trabajosVehiculo])
+  }, [trabajosVehiculo, partes])
 
   function urlPublicaVehiculo(vehiculo) {
     return (
@@ -1721,6 +1811,9 @@ function App() {
     if (e1) { setError(`No se pudo preparar la eliminación: ${e1.message}`); setGuardando(false); return }
     const ids = (registros || []).map(x => x.id)
     if (ids.length) {
+      const { error: ePhotos } = await supabase.from('service_photos').delete().in('service_record_id', ids)
+      if (ePhotos) { setError(`No se pudieron eliminar las fotos del historial: ${ePhotos.message}`); setGuardando(false); return }
+
       const { error: e2 } = await supabase.from('service_parts').delete().in('service_record_id', ids)
       if (e2) { setError(`No se pudieron eliminar los repuestos: ${e2.message}`); setGuardando(false); return }
       const { error: e3 } = await supabase.from('service_records').delete().eq('vehicle_id', vehiculoSeleccionado.id)
@@ -1729,6 +1822,7 @@ function App() {
     const { error } = await supabase.from('vehicles').delete().eq('id', vehiculoSeleccionado.id)
     if (error) { setError(`No se pudo eliminar el vehículo: ${error.message}`); setGuardando(false); return }
     setVehiculos(a => a.filter(v => v.id !== vehiculoSeleccionado.id))
+    setPartes(a => a.filter(parte => !ids.includes(parte.service_record_id)))
     setVehiculoSeleccionado(null)
     setClienteSeleccionado(null)
     setGuardando(false)
@@ -1788,23 +1882,63 @@ function App() {
   function imprimirHistorial() {
     if (!vehiculoSeleccionado) return
 
-    const trabajosParaImprimir =
-      trabajosVehiculo
+    const trabajosParaImprimir = trabajosVehiculo
 
     const contenido =
       trabajosParaImprimir.length === 0
         ? '<p>No hay trabajos registrados.</p>'
         : trabajosParaImprimir
-            .map(
-              (trabajo) => `
+            .map((trabajo) => {
+              const partesTrabajo = partes.filter(
+                (parte) =>
+                  parte.service_record_id === trabajo.id
+              )
+
+              const manoDeObra = Number(
+                trabajo.importe || 0
+              )
+              const totalPartes =
+                totalRepuestos(partesTrabajo)
+              const total =
+                manoDeObra + totalPartes
+
+              const htmlPartes =
+                partesTrabajo.length
+                  ? `
+                    <h4>Repuestos</h4>
+                    ${partesTrabajo
+                      .map(
+                        (parte) => `
+                          <div class="fila">
+                            <div>
+                              <strong>${textoSeguro(parte.nombre)}</strong>
+                              ${
+                                parte.marca
+                                  ? ` — ${textoSeguro(parte.marca)}`
+                                  : ''
+                              }
+                              × ${parte.cantidad || 1}
+                            </div>
+                            <div>
+                              ${formatoImporte(
+                                Number(parte.cantidad || 1) *
+                                Number(parte.precio || 0)
+                              )}
+                            </div>
+                          </div>
+                        `
+                      )
+                      .join('')}
+                  `
+                  : ''
+
+              return `
                 <div class="trabajo">
                   <h3>
-                    ${formatoFecha(
-                      trabajo.fecha
-                    )}
+                    ${formatoFecha(trabajo.fecha)}
                     ${
                       trabajo.tipo_trabajo
-                        ? ` — ${trabajo.tipo_trabajo}`
+                        ? ` — ${textoSeguro(trabajo.tipo_trabajo)}`
                         : ''
                     }
                   </h3>
@@ -1820,9 +1954,7 @@ function App() {
 
                   <p>
                     <strong>Trabajo realizado:</strong><br>
-                    ${textoSeguro(
-                      trabajo.descripcion
-                    )}
+                    ${textoSeguro(trabajo.descripcion)}
                   </p>
 
                   ${
@@ -1830,35 +1962,44 @@ function App() {
                       ? `
                         <p>
                           <strong>Observaciones:</strong><br>
-                          ${trabajo.observaciones}
+                          ${textoSeguro(trabajo.observaciones)}
                         </p>
                       `
                       : ''
                   }
 
-                  ${
-                    trabajo.importe != null
-                      ? `
-                        <p>
-                          <strong>Importe:</strong>
-                          ${formatoImporte(
-                            trabajo.importe
-                          )}
-                        </p>
-                      `
-                      : ''
-                  }
+                  ${htmlPartes}
+
+                  <div class="fila">
+                    <div><strong>Mano de obra</strong></div>
+                    <div>${formatoImporte(manoDeObra)}</div>
+                  </div>
+
+                  <div class="fila">
+                    <div><strong>Repuestos</strong></div>
+                    <div>${formatoImporte(totalPartes)}</div>
+                  </div>
+
+                  <div class="total-pequeno">
+                    TOTAL DEL TRABAJO: ${formatoImporte(total)}
+                  </div>
                 </div>
               `
-            )
+            })
             .join('')
 
-    const ventana =
-      window.open(
-        '',
-        '_blank',
-        'width=900,height=700'
+    const totalHistorico =
+      trabajosParaImprimir.reduce(
+        (total, trabajo) =>
+          total + totalTrabajo(trabajo, partes),
+        0
       )
+
+    const ventana = window.open(
+      '',
+      '_blank',
+      'width=900,height=700'
+    )
 
     if (!ventana) return
 
@@ -1866,6 +2007,7 @@ function App() {
       <!DOCTYPE html>
       <html>
       <head>
+        <meta charset="UTF-8">
         <title>Historial - ${
           vehiculoSeleccionado.patente
         }</title>
@@ -1886,6 +2028,10 @@ function App() {
             color: #555;
           }
 
+          h4 {
+            margin-bottom: 8px;
+          }
+
           .cabecera {
             border-bottom: 2px solid #222;
             padding-bottom: 20px;
@@ -1903,6 +2049,30 @@ function App() {
             margin-top: 0;
           }
 
+          .fila {
+            border-bottom: 1px solid #ddd;
+            padding: 7px 0;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+          }
+
+          .total-pequeno {
+            text-align: right;
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 15px;
+          }
+
+          .total-historico {
+            text-align: right;
+            font-size: 22px;
+            font-weight: bold;
+            border-top: 2px solid #222;
+            padding-top: 15px;
+            margin-top: 25px;
+          }
+
           .pie {
             margin-top: 30px;
             font-size: 12px;
@@ -1912,26 +2082,19 @@ function App() {
       </head>
 
       <body>
-
         <div class="cabecera">
           <h1>EL CHINO</h1>
           <h2>Historial del vehículo</h2>
 
           <p>
             <strong>Vehículo:</strong>
-            ${
-              vehiculoSeleccionado.marca
-            }
-            ${
-              vehiculoSeleccionado.modelo
-            }
+            ${textoSeguro(vehiculoSeleccionado.marca)}
+            ${textoSeguro(vehiculoSeleccionado.modelo)}
           </p>
 
           <p>
             <strong>Patente:</strong>
-            ${
-              vehiculoSeleccionado.patente
-            }
+            ${textoSeguro(vehiculoSeleccionado.patente)}
           </p>
 
           <p>
@@ -1945,10 +2108,13 @@ function App() {
 
         ${contenido}
 
+        <div class="total-historico">
+          TOTAL HISTÓRICO: ${formatoImporte(totalHistorico)}
+        </div>
+
         <div class="pie">
           Historial generado por EL CHINO — Taller Mecánico
         </div>
-
       </body>
       </html>
     `)
@@ -2193,17 +2359,16 @@ function App() {
                                         parte.id
                                       }
                                     >
-                                      {
-                                        parte.nombre
-                                      }
-
+                                      <strong>{parte.nombre}</strong>
                                       {parte.marca
                                         ? ` — ${parte.marca}`
                                         : ''}
-
-                                      {parte.cantidad
-                                        ? ` — Cant.: ${parte.cantidad}`
-                                        : ''}
+                                      {` — Cant.: ${parte.cantidad || 1}`}
+                                      {` — Precio unit.: ${formatoImporte(parte.precio)}`}
+                                      {` — Subtotal: ${formatoImporte(
+                                        Number(parte.cantidad || 1) *
+                                        Number(parte.precio || 0)
+                                      )}`}
                                     </li>
                                   )
                                 )}
@@ -2212,14 +2377,41 @@ function App() {
                             </div>
                           )}
 
+                          <div className="panel" style={{ marginTop: '12px' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px' }}>
+                              <span>Mano de obra</span>
+                              <strong>{formatoImporte(trabajo.importe)}</strong>
+                            </div>
+
+                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', marginTop:'6px' }}>
+                              <span>Repuestos</span>
+                              <strong>{formatoImporte(totalRepuestos(partes))}</strong>
+                            </div>
+
+                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #ddd', fontSize:'18px' }}>
+                              <strong>IMPORTE TOTAL</strong>
+                              <strong>
+                                {formatoImporte(
+                                  Number(trabajo.importe || 0) +
+                                  totalRepuestos(partes)
+                                )}
+                              </strong>
+                            </div>
+                          </div>
+
                           {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).length > 0 && (
                             <div style={{ marginTop:'12px' }}>
                               <strong>Fotos:</strong>
                               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'8px', marginTop:'8px' }}>
                                 {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).map((foto) => (
-                                  <a key={foto.id} href={foto.foto_url} target="_blank" rel="noreferrer">
-                                    <img src={foto.foto_url} alt="Foto del trabajo" style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'8px' }} />
-                                  </a>
+                                  <button
+                                    key={foto.id}
+                                    type="button"
+                                    onClick={() => setFotoAmpliada(foto.foto_url)}
+                                    style={{ border:'0', padding:0, background:'transparent', cursor:'zoom-in' }}
+                                  >
+                                    <img src={foto.foto_url} alt="Foto del trabajo" style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'8px', display:'block' }} />
+                                  </button>
                                 ))}
                               </div>
                             </div>
@@ -2871,7 +3063,7 @@ function App() {
                         <strong>
                           {
                             formatoImporte(
-                              trabajo.importe
+                              totalTrabajo(trabajo, partes)
                             )
                           }
                         </strong>
@@ -4202,7 +4394,7 @@ function App() {
                         <strong>
                           {
                             formatoImporte(
-                              trabajo.importe
+                              totalTrabajo(trabajo, partes)
                             )
                           }
                         </strong>
@@ -4296,13 +4488,43 @@ function App() {
 
                 <div className="detail-item">
                   <span>
-                    Importe
+                    Mano de obra
                   </span>
 
                   <strong>
                     {
                       formatoImporte(
                         trabajoSeleccionado.importe
+                      )
+                    }
+                  </strong>
+                </div>
+
+                <div className="detail-item">
+                  <span>
+                    Repuestos
+                  </span>
+
+                  <strong>
+                    {
+                      formatoImporte(
+                        totalRepuestos(trabajoPartes)
+                      )
+                    }
+                  </strong>
+                </div>
+
+                <div className="detail-item">
+                  <span>
+                    Importe total
+                  </span>
+
+                  <strong>
+                    {
+                      formatoImporte(
+                        Number(
+                          trabajoSeleccionado.importe || 0
+                        ) + totalRepuestos(trabajoPartes)
                       )
                     }
                   </strong>
@@ -4389,11 +4611,19 @@ function App() {
 
                       </div>
 
-                      <div>
-                        Cant.:{' '}
-                        {
-                          parte.cantidad
-                        }
+                      <div style={{ textAlign: 'right' }}>
+                        <div>
+                          Cant.: {parte.cantidad || 1}
+                        </div>
+                        <div>
+                          Precio unitario: {formatoImporte(parte.precio)}
+                        </div>
+                        <strong>
+                          Subtotal: {formatoImporte(
+                            Number(parte.cantidad || 1) *
+                            Number(parte.precio || 0)
+                          )}
+                        </strong>
                       </div>
 
                     </div>
@@ -5281,82 +5511,7 @@ function App() {
 
               <button
                 className="save-button"
-                onClick={() => {
-
-                  const ventana =
-                    window.open(
-                      '',
-                      '_blank',
-                      'width=700,height=800'
-                    )
-
-                  if (!ventana)
-                    return
-
-                  ventana.document.write(`
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                      <title>QR - ${
-                        vehiculoSeleccionado.patente
-                      }</title>
-
-                      <style>
-                        body {
-                          font-family: Arial;
-                          text-align: center;
-                          padding: 40px;
-                        }
-
-                        img {
-                          width: 350px;
-                          height: 350px;
-                        }
-
-                        h1 {
-                          margin-bottom: 5px;
-                        }
-                      </style>
-                    </head>
-
-                    <body>
-
-                      <h1>EL CHINO</h1>
-
-                      <h2>
-                        Historial del vehículo
-                      </h2>
-
-                      <h3>
-                        ${
-                          vehiculoSeleccionado.marca
-                        }
-                        ${
-                          vehiculoSeleccionado.modelo
-                        }
-                      </h3>
-
-                      <h2>
-                        ${
-                          vehiculoSeleccionado.patente
-                        }
-                      </h2>
-
-                      <img src="${dataUrl}" alt="QR del vehículo" />
-
-                      <p>
-                        Escaneá el código para consultar
-                        el historial del vehículo.
-                      </p>
-
-                    </body>
-                    </html>
-                  `)
-
-                  ventana.document.close()
-                  ventana.focus()
-                  ventana.print()
-                }}
+                onClick={imprimirQR}
               >
 
                 <Printer size={18} />
