@@ -57,6 +57,56 @@ function textoSeguro(valor) {
   return valor ?? ''
 }
 
+const MANTENIMIENTO_MARKER = '__ELCHINO_MANTENIMIENTO__'
+
+function obtenerMantenimiento(vehiculo) {
+  const observaciones = String(vehiculo?.observaciones || '')
+  const indice = observaciones.lastIndexOf(MANTENIMIENTO_MARKER)
+  if (indice === -1) return null
+  const json = observaciones.slice(indice + MANTENIMIENTO_MARKER.length).trim()
+  try { return JSON.parse(json) } catch { return null }
+}
+
+function observacionesSinMantenimiento(valor) {
+  const observaciones = String(valor || '')
+  const indice = observaciones.lastIndexOf(MANTENIMIENTO_MARKER)
+  return indice === -1 ? observaciones.trim() : observaciones.slice(0, indice).trim()
+}
+
+function construirObservacionesConMantenimiento(observaciones, mantenimiento) {
+  const base = observacionesSinMantenimiento(observaciones)
+  const bloque = mantenimiento ? `${MANTENIMIENTO_MARKER}${JSON.stringify(mantenimiento)}` : ''
+  return [base, bloque].filter(Boolean).join('\n') || null
+}
+
+function estadoMantenimiento(mantenimiento, kilometrajeActual) {
+  if (!mantenimiento) return null
+  const kmActual = Number(kilometrajeActual || 0)
+  const kmProximo = Number(mantenimiento.kmProximo || 0)
+  const fechaProxima = mantenimiento.fechaProxima || ''
+  const vencidoKm = kmProximo > 0 && kmActual > 0 && kmActual >= kmProximo
+  const vencidoFecha = Boolean(fechaProxima && fechaLocal() >= fechaProxima)
+  if (vencidoKm || vencidoFecha) return 'vencido'
+  if (kmProximo > 0 || fechaProxima) return 'pendiente'
+  return 'registrado'
+}
+
+function textoEstadoMantenimiento(mantenimiento, kilometrajeActual) {
+  const estado = estadoMantenimiento(mantenimiento, kilometrajeActual)
+  if (!estado) return ''
+  if (estado === 'vencido') return 'Mantenimiento pendiente'
+  if (estado === 'registrado') return 'Último mantenimiento registrado'
+  const partes = []
+  const kmActual = Number(kilometrajeActual || 0)
+  const kmProximo = Number(mantenimiento.kmProximo || 0)
+  if (kmProximo > 0 && kmActual > 0) {
+    const faltan = kmProximo - kmActual
+    partes.push(faltan <= 0 ? 'por kilometraje' : `faltan ${faltan.toLocaleString('es-AR')} km`)
+  }
+  if (mantenimiento.fechaProxima) partes.push(`fecha ${formatoFecha(mantenimiento.fechaProxima)}`)
+  return partes.join(' · ') || 'Próximo service cargado'
+}
+
 function totalRepuestos(partes = []) {
   return partes.reduce((total, parte) => {
     const cantidad = Number(parte.cantidad || 1)
@@ -127,6 +177,8 @@ function App() {
   const [mostrarQR, setMostrarQR] = useState(false)
   const [fotoVehiculo, setFotoVehiculo] = useState(null)
   const [fotoAmpliada, setFotoAmpliada] = useState(null)
+  const [mostrarMantenimiento, setMostrarMantenimiento] = useState(false)
+  const [formMantenimiento, setFormMantenimiento] = useState({ tipo:'Cambio de aceite y filtros', fechaUltimo:'', kmUltimo:'', kmProximo:'', fechaProxima:'', notas:'' })
 
   const [formVehiculo, setFormVehiculo] = useState({
     patente: '',
@@ -163,6 +215,9 @@ function App() {
     descripcion: '',
     observaciones: '',
     importe: '',
+    programarMantenimiento: false,
+    proximoKm: '',
+    proximaFecha: '',
   })
 
   const [partesForm, setPartesForm] = useState([])
@@ -429,6 +484,9 @@ function App() {
       descripcion: '',
       observaciones: '',
       importe: '',
+      programarMantenimiento: false,
+      proximoKm: '',
+      proximaFecha: '',
     })
 
     setPartesForm([])
@@ -650,6 +708,58 @@ function App() {
     })
   }
 
+  function abrirMantenimiento() {
+    if (!vehiculoSeleccionado) return
+    const actual = obtenerMantenimiento(vehiculoSeleccionado)
+    setFormMantenimiento({
+      tipo: actual?.tipo || 'Cambio de aceite y filtros',
+      fechaUltimo: actual?.fechaUltimo || '',
+      kmUltimo: actual?.kmUltimo || vehiculoSeleccionado.kilometraje || '',
+      kmProximo: actual?.kmProximo || '',
+      fechaProxima: actual?.fechaProxima || '',
+      notas: actual?.notas || '',
+    })
+    limpiarMensajes()
+    setMostrarMantenimiento(true)
+  }
+
+  function cambiarMantenimiento(e) {
+    setFormMantenimiento({ ...formMantenimiento, [e.target.name]: e.target.value })
+  }
+
+  async function guardarMantenimiento(e) {
+    e.preventDefault()
+    if (!vehiculoSeleccionado) return
+    limpiarMensajes()
+    if (!formMantenimiento.kmProximo && !formMantenimiento.fechaProxima) {
+      setError('Ingresá el próximo kilometraje, la próxima fecha o ambos.')
+      return
+    }
+    setGuardando(true)
+    const mantenimiento = {
+      tipo: formMantenimiento.tipo.trim() || 'Mantenimiento',
+      fechaUltimo: formMantenimiento.fechaUltimo || null,
+      kmUltimo: formMantenimiento.kmUltimo ? Number(formMantenimiento.kmUltimo) : null,
+      kmProximo: formMantenimiento.kmProximo ? Number(formMantenimiento.kmProximo) : null,
+      fechaProxima: formMantenimiento.fechaProxima || null,
+      notas: formMantenimiento.notas.trim() || null,
+    }
+    const { data, error } = await supabase.from('vehicles').update({
+      observaciones: construirObservacionesConMantenimiento(vehiculoSeleccionado.observaciones, mantenimiento),
+    }).eq('id', vehiculoSeleccionado.id).select('*, customers(*)').single()
+    if (error) {
+      setError(`No se pudo guardar el próximo service: ${error.message}`)
+      setGuardando(false)
+      return
+    }
+    setVehiculoSeleccionado(data)
+    setVehiculos((actuales) => actuales.map((v) => v.id === data.id ? data : v))
+    setMostrarMantenimiento(false)
+    setGuardando(false)
+    setMensaje('Próximo service guardado correctamente.')
+    setTimeout(() => setMensaje(''), 1800)
+  }
+
   function cambiarFotoVehiculo(e) {
     setFotoVehiculo(e.target.files?.[0] || null)
   }
@@ -682,6 +792,29 @@ function App() {
         precio: '',
         observaciones: '',
       },
+    ])
+  }
+
+  function cargarKitLubricentro() {
+    const kit = [
+      'ACEITE DE MOTOR',
+      'FILTRO DE COMBUSTIBLE',
+      'FILTRO DE AIRE',
+      'FILTRO DE HABITÁCULO',
+      'FILTRO DE ACEITE',
+      'REFRIGERANTE',
+      'ACEITE DE CAJA',
+    ]
+
+    setPartesForm([
+      ...partesForm,
+      ...kit.map((nombre) => ({
+        nombre,
+        marca: '',
+        cantidad: '1',
+        precio: '',
+        observaciones: '',
+      })),
     ])
   }
 
@@ -1121,6 +1254,47 @@ function App() {
       }
     }
 
+    const debeProgramarMantenimiento =
+      Boolean(formTrabajo.programarMantenimiento) ||
+      Boolean(formTrabajo.proximoKm) ||
+      Boolean(formTrabajo.proximaFecha)
+
+    if (debeProgramarMantenimiento) {
+      const vehiculoParaMantenimiento =
+        kilometrajeNuevo && kilometrajeNuevo > kilometrajeActual
+          ? { ...vehiculoSeleccionado, kilometraje: kilometrajeNuevo }
+          : vehiculoSeleccionado
+
+      if (!formTrabajo.proximoKm && !formTrabajo.proximaFecha) {
+        setError('El trabajo se guardó, pero falta indicar el próximo kilometraje o la próxima fecha del mantenimiento.')
+      } else {
+        const mantenimiento = {
+          tipo: formTrabajo.tipo_trabajo.trim() || 'Mantenimiento',
+          fechaUltimo: formTrabajo.fecha || null,
+          kmUltimo: kilometrajeNuevo || Number(vehiculoParaMantenimiento.kilometraje || 0) || null,
+          kmProximo: formTrabajo.proximoKm ? Number(formTrabajo.proximoKm) : null,
+          fechaProxima: formTrabajo.proximaFecha || null,
+          notas: null,
+        }
+
+        const resultadoMantenimiento = await supabase
+          .from('vehicles')
+          .update({
+            observaciones: construirObservacionesConMantenimiento(vehiculoParaMantenimiento.observaciones, mantenimiento),
+          })
+          .eq('id', vehiculoSeleccionado.id)
+          .select('*, customers(*)')
+          .single()
+
+        if (resultadoMantenimiento.error) {
+          setError(`El trabajo se guardó, pero no se pudo guardar el próximo service: ${resultadoMantenimiento.error.message}`)
+        } else {
+          setVehiculoSeleccionado(resultadoMantenimiento.data)
+          setVehiculos((actuales) => actuales.map((v) => v.id === resultadoMantenimiento.data.id ? resultadoMantenimiento.data : v))
+        }
+      }
+    }
+
     setTrabajos((actuales) => [
       trabajo,
       ...actuales,
@@ -1152,6 +1326,9 @@ function App() {
       descripcion: '',
       observaciones: '',
       importe: '',
+      programarMantenimiento: false,
+      proximoKm: '',
+      proximaFecha: '',
     })
 
     setPartesForm([])
@@ -1582,9 +1759,10 @@ function App() {
         formVehiculo.cliente_id ||
         null,
 
-      observaciones:
-        formVehiculo.observaciones.trim() ||
-        null,
+      observaciones: construirObservacionesConMantenimiento(
+        formVehiculo.observaciones.trim(),
+        obtenerMantenimiento(vehiculoSeleccionado)
+      ),
     }
 
     const {
@@ -2308,6 +2486,25 @@ function App() {
 
                 </div>
 
+                {obtenerMantenimiento(vehiculoPublico) && (() => {
+                  const mantenimiento = obtenerMantenimiento(vehiculoPublico)
+                  return (
+                    <div className="panel" style={{ marginTop:'15px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'12px', flexWrap:'wrap' }}>
+                        <div><span className="vehicle-label">MANTENIMIENTO</span><h3>{mantenimiento.tipo}</h3></div>
+                        <strong>{textoEstadoMantenimiento(mantenimiento, vehiculoPublico.kilometraje)}</strong>
+                      </div>
+                      <div className="vehicle-detail-grid">
+                        <div className="detail-item"><span>Último service</span><strong>{formatoFecha(mantenimiento.fechaUltimo)}</strong></div>
+                        <div className="detail-item"><span>Km realizado</span><strong>{mantenimiento.kmUltimo ? `${Number(mantenimiento.kmUltimo).toLocaleString('es-AR')} km` : '-'}</strong></div>
+                        <div className="detail-item"><span>Próxima fecha</span><strong>{mantenimiento.fechaProxima ? formatoFecha(mantenimiento.fechaProxima) : '-'}</strong></div>
+                        <div className="detail-item"><span>Próximo km</span><strong>{mantenimiento.kmProximo ? `${Number(mantenimiento.kmProximo).toLocaleString('es-AR')} km` : '-'}</strong></div>
+                      </div>
+                      {mantenimiento.notas && <p>{mantenimiento.notas}</p>}
+                    </div>
+                  )
+                })()}
+
                 <div className="panel">
 
                   <h3>
@@ -2985,6 +3182,31 @@ function App() {
                 </div>
 
               </div>
+
+              {(() => {
+                const mantenimiento = obtenerMantenimiento(vehiculoSeleccionado)
+                return mantenimiento ? (
+                  <div className="panel" style={{ marginTop:'15px' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'15px', flexWrap:'wrap' }}>
+                      <div><span className="vehicle-label">MANTENIMIENTO</span><h3>{mantenimiento.tipo}</h3><p>{textoEstadoMantenimiento(mantenimiento, vehiculoSeleccionado.kilometraje)}</p></div>
+                      <button className="action-button" onClick={abrirMantenimiento}>Editar próximo service</button>
+                    </div>
+                    <div className="vehicle-detail-grid">
+                      <div className="detail-item"><span>Último service</span><strong>{formatoFecha(mantenimiento.fechaUltimo)}</strong></div>
+                      <div className="detail-item"><span>Km realizado</span><strong>{mantenimiento.kmUltimo ? `${Number(mantenimiento.kmUltimo).toLocaleString('es-AR')} km` : '-'}</strong></div>
+                      <div className="detail-item"><span>Próxima fecha</span><strong>{mantenimiento.fechaProxima ? formatoFecha(mantenimiento.fechaProxima) : '-'}</strong></div>
+                      <div className="detail-item"><span>Próximo km</span><strong>{mantenimiento.kmProximo ? `${Number(mantenimiento.kmProximo).toLocaleString('es-AR')} km` : '-'}</strong></div>
+                    </div>
+                    {mantenimiento.notas && <p><strong>Notas:</strong> {mantenimiento.notas}</p>}
+                  </div>
+                ) : (
+                  <div className="panel" style={{ marginTop:'15px' }}>
+                    <span className="vehicle-label">MANTENIMIENTO</span><h3>Programar próximo service</h3>
+                    <p>Registrá cambio de aceite, filtros, distribución, frenos u otro mantenimiento y definí cuándo corresponde volver.</p>
+                    <button className="action-button" onClick={abrirMantenimiento}><CalendarDays size={17} /> Programar mantenimiento</button>
+                  </div>
+                )
+              })()}
 
               {presupuestosVehiculo.length > 0 && (
                 <div className="panel">
@@ -4086,6 +4308,32 @@ function App() {
 
                 </div>
 
+                <div className="panel" style={{ marginTop:'15px' }}>
+                  <h3>Próximo mantenimiento</h3>
+                  <p>Si este trabajo corresponde a un mantenimiento, podés dejar programado cuándo debe volver el vehículo.</p>
+                  <label style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'15px' }}>
+                    <input
+                      type="checkbox"
+                      name="programarMantenimiento"
+                      checked={Boolean(formTrabajo.programarMantenimiento)}
+                      onChange={(e) => setFormTrabajo({ ...formTrabajo, programarMantenimiento: e.target.checked })}
+                    />
+                    Programar próximo service
+                  </label>
+                  {formTrabajo.programarMantenimiento && (
+                    <div className="form-grid">
+                      <div className="form-field">
+                        <label>Próximo kilometraje</label>
+                        <input type="number" min="0" name="proximoKm" value={formTrabajo.proximoKm} onChange={cambiarTrabajo} placeholder="Ej: 160000" />
+                      </div>
+                      <div className="form-field">
+                        <label>Próxima fecha</label>
+                        <input type="date" name="proximaFecha" value={formTrabajo.proximaFecha} onChange={cambiarTrabajo} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="form-field">
                   <label>Fotos del trabajo</label>
                   <input type="file" accept="image/*" multiple onChange={cambiarFotosTrabajo} />
@@ -4122,16 +4370,21 @@ function App() {
 
                   </div>
 
-                  <button
-                    type="button"
-                    className="action-button"
-                    onClick={
-                      agregarParte
-                    }
-                  >
-                    <Plus size={17} />
-                    Agregar repuesto
-                  </button>
+                  <div style={{display:'flex',gap:'8px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                    <button type="button" className="action-button" onClick={cargarKitLubricentro}>
+                      Cargar kit lubricentro
+                    </button>
+                    <button
+                      type="button"
+                      className="action-button"
+                      onClick={
+                        agregarParte
+                      }
+                    >
+                      <Plus size={17} />
+                      Agregar repuesto
+                    </button>
+                  </div>
 
                 </div>
 
@@ -4254,6 +4507,15 @@ function App() {
                               cambiarParte(indice, 'precio', e.target.value)
                             }
                             placeholder="$"
+                          />
+                        </div>
+
+                        <div className="form-field">
+                          <label>Total</label>
+                          <input
+                            type="text"
+                            readOnly
+                            value={formatoImporte(Number(parte.precio || 0) * Number(parte.cantidad || 1))}
                           />
                         </div>
 
@@ -4392,6 +4654,9 @@ function App() {
                     <option>Distribución</option>
                     <option>Frenos</option>
                     <option>Service</option>
+                    <option>Cambio de aceite y filtros</option>
+                    <option>Filtro de aire</option>
+                    <option>Filtro de combustible</option>
                     <option>Otro</option>
                   </select>
                 </div>
@@ -4422,9 +4687,14 @@ function App() {
                   <h3>Repuestos</h3>
                   <p>Agregá cada repuesto con su precio unitario.</p>
                 </div>
-                <button type="button" className="action-button" onClick={agregarParte}>
-                  <Plus size={17} /> Agregar repuesto
-                </button>
+                <div style={{display:'flex',gap:'8px',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <button type="button" className="action-button" onClick={cargarKitLubricentro}>
+                    Cargar kit lubricentro
+                  </button>
+                  <button type="button" className="action-button" onClick={agregarParte}>
+                    <Plus size={17} /> Agregar repuesto
+                  </button>
+                </div>
               </div>
 
               {partesForm.length === 0 && <div className="empty">No agregaste repuestos.</div>}
@@ -4451,6 +4721,10 @@ function App() {
                     <div className="form-field">
                       <label>Precio unitario</label>
                       <input type="number" min="0" step="0.01" value={parte.precio} onChange={(e) => cambiarParte(indice,'precio',e.target.value)} placeholder="$" />
+                    </div>
+                    <div className="form-field">
+                      <label>Total</label>
+                      <input type="text" readOnly value={formatoImporte(Number(parte.precio || 0) * Number(parte.cantidad || 1))} />
                     </div>
                   </div>
                 </div>
@@ -5666,6 +5940,31 @@ function App() {
           )}
 
       </main>
+
+      {mostrarMantenimiento && vehiculoSeleccionado && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'20px' }}>
+          <section className="panel" style={{ width:'min(760px,100%)', maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'15px' }}>
+              <div><span className="vehicle-label">MANTENIMIENTO</span><h2>Programar próximo service</h2><p>{vehiculoSeleccionado.patente} — {vehiculoSeleccionado.marca} {vehiculoSeleccionado.modelo}</p></div>
+              <button className="action-button" type="button" onClick={() => setMostrarMantenimiento(false)}><X size={18} /></button>
+            </div>
+            <form className="vehicle-form" onSubmit={guardarMantenimiento}>
+              <div className="form-grid">
+                <div className="form-field"><label>Mantenimiento</label><select name="tipo" value={formMantenimiento.tipo} onChange={cambiarMantenimiento}>
+                  <option>Cambio de aceite y filtros</option><option>Service general</option><option>Distribución</option><option>Frenos</option><option>Refrigerante</option><option>Correa auxiliar</option><option>Bujías</option><option>Filtros</option><option>Otro mantenimiento</option>
+                </select></div>
+                <div className="form-field"><label>Fecha del último service</label><input type="date" name="fechaUltimo" value={formMantenimiento.fechaUltimo} onChange={cambiarMantenimiento} /></div>
+                <div className="form-field"><label>Km del último service</label><input type="number" min="0" name="kmUltimo" value={formMantenimiento.kmUltimo} onChange={cambiarMantenimiento} placeholder="Ej: 150000" /></div>
+                <div className="form-field"><label>Próximo kilometraje</label><input type="number" min="0" name="kmProximo" value={formMantenimiento.kmProximo} onChange={cambiarMantenimiento} placeholder="Ej: 160000" /></div>
+                <div className="form-field"><label>Próxima fecha</label><input type="date" name="fechaProxima" value={formMantenimiento.fechaProxima} onChange={cambiarMantenimiento} /></div>
+              </div>
+              <div className="form-field"><label>Notas</label><textarea name="notas" value={formMantenimiento.notas} onChange={cambiarMantenimiento} rows="3" placeholder="Ej: aceite 5W30, filtro de aceite y filtro de aire." /></div>
+              <p style={{ fontSize:'13px' }}>Podés usar kilometraje, fecha o ambos. El recordatorio queda guardado en la ficha y también se muestra al cliente mediante el QR.</p>
+              <button className="save-button" type="submit" disabled={guardando}><Save size={18} /> {guardando ? 'Guardando...' : 'Guardar próximo service'}</button>
+            </form>
+          </section>
+        </div>
+      )}
 
       {/* MODAL QR */}
 
