@@ -65,13 +65,15 @@ function totalRepuestos(partes = []) {
   }, 0)
 }
 
-function totalTrabajo(trabajo, partes = []) {
-  const manoDeObra = Number(trabajo?.importe || 0)
-  const partesTrabajo = partes.filter(
-    (parte) => parte.service_record_id === trabajo?.id
-  )
+function esPresupuesto(trabajo) {
+  return String(trabajo?.tipo_trabajo || '').startsWith('__PRESUPUESTO__|')
+}
 
-  return manoDeObra + totalRepuestos(partesTrabajo)
+function tipoPresupuesto(trabajo) {
+  const valor = String(trabajo?.tipo_trabajo || '')
+  return valor.startsWith('__PRESUPUESTO__|')
+    ? valor.replace('__PRESUPUESTO__|', '') || 'General'
+    : valor || 'General'
 }
 
 function App() {
@@ -85,7 +87,6 @@ function App() {
   const [vehiculos, setVehiculos] = useState([])
   const [clientes, setClientes] = useState([])
   const [trabajos, setTrabajos] = useState([])
-  const [partes, setPartes] = useState([])
   const [trabajoPartes, setTrabajoPartes] = useState([])
   const [trabajoFotos, setTrabajoFotos] = useState([])
   const [fotosTrabajoForm, setFotosTrabajoForm] = useState([])
@@ -166,17 +167,17 @@ function App() {
 
   const [partesForm, setPartesForm] = useState([])
 
+  const [presupuestoSeleccionado, setPresupuestoSeleccionado] = useState(null)
+
   useEffect(() => {
-    if (!modoPublico) {
-      cargarDatos()
-    }
-  }, [modoPublico])
+    cargarDatos()
+  }, [])
 
   useEffect(() => {
     if (modoPublico) {
       cargarHistorialPublico()
     }
-  }, [modoPublico])
+  }, [])
 
   async function cargarDatos() {
     setCargando(true)
@@ -186,7 +187,6 @@ function App() {
       resultadoVehiculos,
       resultadoClientes,
       resultadoTrabajos,
-      resultadoPartes,
     ] = await Promise.all([
       supabase
         .from('vehicles')
@@ -202,10 +202,6 @@ function App() {
         .from('service_records')
         .select('*')
         .order('fecha', { ascending: false }),
-
-      supabase
-        .from('service_parts')
-        .select('*'),
     ])
 
     if (resultadoVehiculos.error) {
@@ -229,17 +225,9 @@ function App() {
       )
     }
 
-    if (resultadoPartes.error) {
-      console.error(resultadoPartes.error)
-      setError(
-        `No se pudieron cargar los repuestos: ${resultadoPartes.error.message}`
-      )
-    }
-
     setVehiculos(resultadoVehiculos.data || [])
     setClientes(resultadoClientes.data || [])
     setTrabajos(resultadoTrabajos.data || [])
-    setPartes(resultadoPartes.data || [])
 
     setCargando(false)
   }
@@ -314,7 +302,7 @@ function App() {
     }
 
     setVehiculoPublico(vehiculo)
-    setTrabajosPublicos(servicios || [])
+    setTrabajosPublicos((servicios || []).filter((trabajo) => !esPresupuesto(trabajo)))
     setPartesPublicos(partes)
     setFotosPublicas(fotos)
 
@@ -450,6 +438,209 @@ function App() {
     setTrabajoSeleccionado(null)
 
     setPantalla('nuevoTrabajo')
+  }
+
+  function nuevoPresupuesto() {
+    if (!vehiculoSeleccionado) {
+      setError('Primero seleccioná un vehículo.')
+      return
+    }
+
+    limpiarMensajes()
+    setFormTrabajo({
+      fecha: fechaLocal(),
+      kilometraje: vehiculoSeleccionado.kilometraje || '',
+      tipo_trabajo: '',
+      descripcion: '',
+      observaciones: '',
+      importe: '',
+    })
+    setPartesForm([])
+    setPresupuestoSeleccionado(null)
+    setPantalla('nuevoPresupuesto')
+  }
+
+  async function guardarPresupuesto(e) {
+    e.preventDefault()
+    if (!vehiculoSeleccionado) return
+    limpiarMensajes()
+
+    if (!formTrabajo.descripcion.trim()) {
+      setError('Ingresá una descripción del presupuesto.')
+      return
+    }
+
+    setGuardando(true)
+
+    const payload = {
+      vehicle_id: vehiculoSeleccionado.id,
+      fecha: formTrabajo.fecha || fechaLocal(),
+      kilometraje: formTrabajo.kilometraje ? Number(formTrabajo.kilometraje) : null,
+      tipo_trabajo: `__PRESUPUESTO__|${formTrabajo.tipo_trabajo.trim() || 'General'}`,
+      descripcion: formTrabajo.descripcion.trim(),
+      observaciones: formTrabajo.observaciones.trim() || null,
+      importe: formTrabajo.importe ? Number(formTrabajo.importe) : 0,
+    }
+
+    const { data: presupuesto, error } = await supabase
+      .from('service_records')
+      .insert(payload)
+      .select('*')
+      .single()
+
+    if (error) {
+      setError(`No se pudo guardar el presupuesto: ${error.message}`)
+      setGuardando(false)
+      return
+    }
+
+    const partesValidas = partesForm.filter((parte) => parte.nombre.trim() !== '')
+    let partesGuardadas = []
+
+    if (partesValidas.length > 0) {
+      const resultado = await supabase
+        .from('service_parts')
+        .insert(partesValidas.map((parte) => ({
+          service_record_id: presupuesto.id,
+          nombre: parte.nombre.trim(),
+          marca: parte.marca.trim() || null,
+          cantidad: parte.cantidad ? Number(parte.cantidad) : 1,
+          precio: parte.precio ? Number(parte.precio) : 0,
+          observaciones: parte.observaciones.trim() || null,
+        })))
+        .select('*')
+
+      if (resultado.error) {
+        await supabase.from('service_records').delete().eq('id', presupuesto.id)
+        setError(`No se pudo guardar el presupuesto: ${resultado.error.message}`)
+        setGuardando(false)
+        return
+      }
+      partesGuardadas = resultado.data || []
+    }
+
+    setTrabajos((actuales) => [presupuesto, ...actuales])
+    setPresupuestoSeleccionado(presupuesto)
+    setTrabajoPartes(partesGuardadas)
+    setGuardando(false)
+    setMensaje('Presupuesto guardado correctamente.')
+    setTimeout(() => {
+      setMensaje('')
+      setPantalla('presupuestoDetalle')
+    }, 700)
+  }
+
+  async function abrirPresupuesto(presupuesto) {
+    limpiarMensajes()
+    setCargando(true)
+    const { data, error } = await supabase
+      .from('service_parts')
+      .select('*')
+      .eq('service_record_id', presupuesto.id)
+
+    if (error) {
+      setError(`No se pudieron cargar los repuestos del presupuesto: ${error.message}`)
+      setCargando(false)
+      return
+    }
+
+    setPresupuestoSeleccionado(presupuesto)
+    setTrabajoPartes(data || [])
+    setCargando(false)
+    setPantalla('presupuestoDetalle')
+  }
+
+  async function convertirPresupuesto() {
+    if (!presupuestoSeleccionado) return
+    if (!window.confirm('¿Convertir este presupuesto en trabajo realizado? Se incorporará al historial del vehículo.')) return
+
+    setGuardando(true)
+    limpiarMensajes()
+    const nuevoTipo = tipoPresupuesto(presupuestoSeleccionado)
+
+    const { data, error } = await supabase
+      .from('service_records')
+      .update({ tipo_trabajo: nuevoTipo })
+      .eq('id', presupuestoSeleccionado.id)
+      .select('*')
+      .single()
+
+    if (error) {
+      setError(`No se pudo convertir el presupuesto: ${error.message}`)
+      setGuardando(false)
+      return
+    }
+
+    setTrabajos((actuales) => actuales.map((trabajo) => trabajo.id === data.id ? data : trabajo))
+    setTrabajoSeleccionado(data)
+    setPresupuestoSeleccionado(null)
+    setGuardando(false)
+    setMensaje('Presupuesto convertido en trabajo realizado.')
+    setTimeout(() => {
+      setMensaje('')
+      setPantalla('trabajoDetalle')
+    }, 700)
+  }
+
+  async function eliminarPresupuesto() {
+    if (!presupuestoSeleccionado) return
+    if (!window.confirm('¿Eliminar definitivamente este presupuesto?')) return
+
+    setGuardando(true)
+    limpiarMensajes()
+    await supabase.from('service_parts').delete().eq('service_record_id', presupuestoSeleccionado.id)
+    const { error } = await supabase.from('service_records').delete().eq('id', presupuestoSeleccionado.id)
+
+    if (error) {
+      setError(`No se pudo eliminar el presupuesto: ${error.message}`)
+      setGuardando(false)
+      return
+    }
+
+    setTrabajos((actuales) => actuales.filter((trabajo) => trabajo.id !== presupuestoSeleccionado.id))
+    setPresupuestoSeleccionado(null)
+    setTrabajoPartes([])
+    setGuardando(false)
+    setMensaje('Presupuesto eliminado correctamente.')
+    setTimeout(() => {
+      setMensaje('')
+      setPantalla('presupuestos')
+    }, 700)
+  }
+
+  function imprimirPresupuesto() {
+    if (!presupuestoSeleccionado) return
+    const cliente = vehiculoSeleccionado?.customers || clienteSeleccionado
+    const numero = `PR-${String(presupuestoSeleccionado.id).slice(0, 8).toUpperCase()}`
+    const manoObra = Number(presupuestoSeleccionado.importe || 0)
+    const partes = trabajoPartes || []
+    const total = manoObra + totalRepuestos(partes)
+    const ventana = window.open('', '_blank', 'width=800,height=900')
+    if (!ventana) return
+    ventana.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Presupuesto ${numero}</title><style>body{font-family:Arial;max-width:760px;margin:auto;padding:35px;color:#222}.cab{display:flex;justify-content:space-between;border-bottom:2px solid #222;padding-bottom:18px}.fila{border-bottom:1px solid #ddd;padding:9px 0;display:flex;justify-content:space-between;gap:20px}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:25px}.pie{text-align:center;color:#666;font-size:12px;margin-top:45px}</style></head><body><div class="cab"><div><h1>EL CHINO</h1><div>Taller Mecánico</div></div><div><strong>PRESUPUESTO</strong><br>${numero}<br>${formatoFecha(presupuestoSeleccionado.fecha)}</div></div><p><strong>Cliente:</strong> ${textoSeguro(cliente?.nombre)||'-'}</p><p><strong>Teléfono:</strong> ${textoSeguro(cliente?.telefono)||'-'}</p><p><strong>Vehículo:</strong> ${textoSeguro(vehiculoSeleccionado?.marca)} ${textoSeguro(vehiculoSeleccionado?.modelo)}</p><p><strong>Patente:</strong> ${textoSeguro(vehiculoSeleccionado?.patente)||'-'}</p><p><strong>Kilometraje:</strong> ${presupuestoSeleccionado.kilometraje ? presupuestoSeleccionado.kilometraje+' km':'-'}</p><h3>${textoSeguro(tipoPresupuesto(presupuestoSeleccionado))}</h3><p>${textoSeguro(presupuestoSeleccionado.descripcion)}</p>${presupuestoSeleccionado.observaciones?`<p><strong>Observaciones:</strong> ${textoSeguro(presupuestoSeleccionado.observaciones)}</p>`:''}${partes.length?`<h3>Repuestos</h3>${partes.map(x=>`<div class="fila"><div><strong>${textoSeguro(x.nombre)}</strong>${x.marca?' — '+textoSeguro(x.marca):''} × ${x.cantidad||1}</div><div>${formatoImporte(Number(x.precio||0)*Number(x.cantidad||1))}</div></div>`).join('')}`:''}<div class="fila"><div><strong>Mano de obra</strong></div><div>${formatoImporte(manoObra)}</div></div><div class="total">TOTAL: ${formatoImporte(total)}</div><div class="pie">Presupuesto interno de EL CHINO. No constituye por sí mismo una factura electrónica fiscal.<br>Valores sujetos a confirmación antes de realizar el trabajo.</div></body></html>`)
+    ventana.document.close(); ventana.focus(); ventana.print()
+  }
+
+  function compartirPresupuestoWhatsApp() {
+    if (!presupuestoSeleccionado) return
+    const partes = trabajoPartes || []
+    const manoObra = Number(presupuestoSeleccionado.importe || 0)
+    const total = manoObra + totalRepuestos(partes)
+    const lineas = [
+      '*EL CHINO – Taller Mecánico*',
+      '*PRESUPUESTO*',
+      `Vehículo: ${vehiculoSeleccionado?.marca || ''} ${vehiculoSeleccionado?.modelo || ''}`.trim(),
+      `Patente: ${vehiculoSeleccionado?.patente || '-'}`,
+      `Trabajo: ${tipoPresupuesto(presupuestoSeleccionado)}`,
+      `Descripción: ${presupuestoSeleccionado.descripcion || '-'}`,
+      '',
+      ...partes.map((parte) => `• ${parte.nombre}${parte.marca ? ` (${parte.marca})` : ''} x${parte.cantidad || 1}: ${formatoImporte(Number(parte.precio || 0) * Number(parte.cantidad || 1))}`),
+      `• Mano de obra: ${formatoImporte(manoObra)}`,
+      `*TOTAL: ${formatoImporte(total)}*`,
+      '',
+      'Presupuesto sujeto a confirmación antes de realizar el trabajo.',
+    ]
+    window.open(`https://wa.me/?text=${encodeURIComponent(lineas.join('\\n'))}`, '_blank')
   }
 
   function cambiarVehiculo(e) {
@@ -862,12 +1053,10 @@ function App() {
       )
 
       const {
-        data: partesGuardadas,
         error: errorPartes,
       } = await supabase
         .from('service_parts')
         .insert(datosPartes)
-        .select('*')
 
       if (errorPartes) {
         console.error(errorPartes)
@@ -879,11 +1068,6 @@ function App() {
         setGuardando(false)
         return
       }
-
-      setPartes((actuales) => [
-        ...actuales,
-        ...(partesGuardadas || []),
-      ])
     }
 
     let fotosGuardadas = []
@@ -1005,42 +1189,7 @@ function App() {
       return
     }
 
-    const ids = (data || []).map(
-      (trabajo) => trabajo.id
-    )
-
-    let partesVehiculo = []
-
-    if (ids.length > 0) {
-      const resultadoPartes = await supabase
-        .from('service_parts')
-        .select('*')
-        .in('service_record_id', ids)
-
-      if (resultadoPartes.error) {
-        setError(
-          `No se pudieron cargar los repuestos: ${resultadoPartes.error.message}`
-        )
-        setCargando(false)
-        return
-      }
-
-      partesVehiculo = resultadoPartes.data || []
-    }
-
     setTrabajos(data || [])
-
-    setPartes((actuales) => {
-      const otros = actuales.filter(
-        (parte) =>
-          !ids.includes(parte.service_record_id)
-      )
-
-      return [
-        ...otros,
-        ...partesVehiculo,
-      ]
-    })
 
     setCargando(false)
 
@@ -1097,14 +1246,6 @@ function App() {
     limpiarMensajes()
 
     await supabase
-      .from('service_photos')
-      .delete()
-      .eq(
-        'service_record_id',
-        trabajoSeleccionado.id
-      )
-
-    await supabase
       .from('service_parts')
       .delete()
       .eq(
@@ -1133,14 +1274,6 @@ function App() {
       actuales.filter(
         (trabajo) =>
           trabajo.id !==
-          trabajoSeleccionado.id
-      )
-    )
-
-    setPartes((actuales) =>
-      actuales.filter(
-        (parte) =>
-          parte.service_record_id !==
           trabajoSeleccionado.id
       )
     )
@@ -1322,15 +1455,6 @@ function App() {
     }
 
     setTrabajoPartes(partesGuardadas)
-
-    setPartes((actuales) => [
-      ...actuales.filter(
-        (parte) =>
-          parte.service_record_id !==
-          trabajoSeleccionado.id
-      ),
-      ...partesGuardadas,
-    ])
 
     setTrabajos((actuales) =>
       actuales.map((trabajo) =>
@@ -1741,7 +1865,8 @@ function App() {
       .filter(
         (trabajo) =>
           trabajo.vehicle_id ===
-          vehiculoSeleccionado.id
+          vehiculoSeleccionado.id &&
+          !esPresupuesto(trabajo)
       )
       .sort(
         (a, b) =>
@@ -1753,10 +1878,23 @@ function App() {
   const totalHistoricoVehiculo = useMemo(() => {
     return trabajosVehiculo.reduce(
       (total, trabajo) =>
-        total + totalTrabajo(trabajo, partes),
+        total + Number(
+          trabajo.importe || 0
+        ),
       0
     )
-  }, [trabajosVehiculo, partes])
+  }, [trabajosVehiculo])
+
+  const presupuestos = useMemo(() => {
+    return trabajos
+      .filter((trabajo) => esPresupuesto(trabajo))
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+  }, [trabajos])
+
+  const presupuestosVehiculo = useMemo(() => {
+    if (!vehiculoSeleccionado) return []
+    return presupuestos.filter((presupuesto) => presupuesto.vehicle_id === vehiculoSeleccionado.id)
+  }, [presupuestos, vehiculoSeleccionado])
 
   function urlPublicaVehiculo(vehiculo) {
     return (
@@ -1811,9 +1949,6 @@ function App() {
     if (e1) { setError(`No se pudo preparar la eliminación: ${e1.message}`); setGuardando(false); return }
     const ids = (registros || []).map(x => x.id)
     if (ids.length) {
-      const { error: ePhotos } = await supabase.from('service_photos').delete().in('service_record_id', ids)
-      if (ePhotos) { setError(`No se pudieron eliminar las fotos del historial: ${ePhotos.message}`); setGuardando(false); return }
-
       const { error: e2 } = await supabase.from('service_parts').delete().in('service_record_id', ids)
       if (e2) { setError(`No se pudieron eliminar los repuestos: ${e2.message}`); setGuardando(false); return }
       const { error: e3 } = await supabase.from('service_records').delete().eq('vehicle_id', vehiculoSeleccionado.id)
@@ -1822,7 +1957,6 @@ function App() {
     const { error } = await supabase.from('vehicles').delete().eq('id', vehiculoSeleccionado.id)
     if (error) { setError(`No se pudo eliminar el vehículo: ${error.message}`); setGuardando(false); return }
     setVehiculos(a => a.filter(v => v.id !== vehiculoSeleccionado.id))
-    setPartes(a => a.filter(parte => !ids.includes(parte.service_record_id)))
     setVehiculoSeleccionado(null)
     setClienteSeleccionado(null)
     setGuardando(false)
@@ -1882,63 +2016,23 @@ function App() {
   function imprimirHistorial() {
     if (!vehiculoSeleccionado) return
 
-    const trabajosParaImprimir = trabajosVehiculo
+    const trabajosParaImprimir =
+      trabajosVehiculo
 
     const contenido =
       trabajosParaImprimir.length === 0
         ? '<p>No hay trabajos registrados.</p>'
         : trabajosParaImprimir
-            .map((trabajo) => {
-              const partesTrabajo = partes.filter(
-                (parte) =>
-                  parte.service_record_id === trabajo.id
-              )
-
-              const manoDeObra = Number(
-                trabajo.importe || 0
-              )
-              const totalPartes =
-                totalRepuestos(partesTrabajo)
-              const total =
-                manoDeObra + totalPartes
-
-              const htmlPartes =
-                partesTrabajo.length
-                  ? `
-                    <h4>Repuestos</h4>
-                    ${partesTrabajo
-                      .map(
-                        (parte) => `
-                          <div class="fila">
-                            <div>
-                              <strong>${textoSeguro(parte.nombre)}</strong>
-                              ${
-                                parte.marca
-                                  ? ` — ${textoSeguro(parte.marca)}`
-                                  : ''
-                              }
-                              × ${parte.cantidad || 1}
-                            </div>
-                            <div>
-                              ${formatoImporte(
-                                Number(parte.cantidad || 1) *
-                                Number(parte.precio || 0)
-                              )}
-                            </div>
-                          </div>
-                        `
-                      )
-                      .join('')}
-                  `
-                  : ''
-
-              return `
+            .map(
+              (trabajo) => `
                 <div class="trabajo">
                   <h3>
-                    ${formatoFecha(trabajo.fecha)}
+                    ${formatoFecha(
+                      trabajo.fecha
+                    )}
                     ${
                       trabajo.tipo_trabajo
-                        ? ` — ${textoSeguro(trabajo.tipo_trabajo)}`
+                        ? ` — ${trabajo.tipo_trabajo}`
                         : ''
                     }
                   </h3>
@@ -1954,7 +2048,9 @@ function App() {
 
                   <p>
                     <strong>Trabajo realizado:</strong><br>
-                    ${textoSeguro(trabajo.descripcion)}
+                    ${textoSeguro(
+                      trabajo.descripcion
+                    )}
                   </p>
 
                   ${
@@ -1962,44 +2058,35 @@ function App() {
                       ? `
                         <p>
                           <strong>Observaciones:</strong><br>
-                          ${textoSeguro(trabajo.observaciones)}
+                          ${trabajo.observaciones}
                         </p>
                       `
                       : ''
                   }
 
-                  ${htmlPartes}
-
-                  <div class="fila">
-                    <div><strong>Mano de obra</strong></div>
-                    <div>${formatoImporte(manoDeObra)}</div>
-                  </div>
-
-                  <div class="fila">
-                    <div><strong>Repuestos</strong></div>
-                    <div>${formatoImporte(totalPartes)}</div>
-                  </div>
-
-                  <div class="total-pequeno">
-                    TOTAL DEL TRABAJO: ${formatoImporte(total)}
-                  </div>
+                  ${
+                    trabajo.importe != null
+                      ? `
+                        <p>
+                          <strong>Importe:</strong>
+                          ${formatoImporte(
+                            trabajo.importe
+                          )}
+                        </p>
+                      `
+                      : ''
+                  }
                 </div>
               `
-            })
+            )
             .join('')
 
-    const totalHistorico =
-      trabajosParaImprimir.reduce(
-        (total, trabajo) =>
-          total + totalTrabajo(trabajo, partes),
-        0
+    const ventana =
+      window.open(
+        '',
+        '_blank',
+        'width=900,height=700'
       )
-
-    const ventana = window.open(
-      '',
-      '_blank',
-      'width=900,height=700'
-    )
 
     if (!ventana) return
 
@@ -2007,7 +2094,6 @@ function App() {
       <!DOCTYPE html>
       <html>
       <head>
-        <meta charset="UTF-8">
         <title>Historial - ${
           vehiculoSeleccionado.patente
         }</title>
@@ -2028,10 +2114,6 @@ function App() {
             color: #555;
           }
 
-          h4 {
-            margin-bottom: 8px;
-          }
-
           .cabecera {
             border-bottom: 2px solid #222;
             padding-bottom: 20px;
@@ -2049,30 +2131,6 @@ function App() {
             margin-top: 0;
           }
 
-          .fila {
-            border-bottom: 1px solid #ddd;
-            padding: 7px 0;
-            display: flex;
-            justify-content: space-between;
-            gap: 20px;
-          }
-
-          .total-pequeno {
-            text-align: right;
-            font-size: 18px;
-            font-weight: bold;
-            margin-top: 15px;
-          }
-
-          .total-historico {
-            text-align: right;
-            font-size: 22px;
-            font-weight: bold;
-            border-top: 2px solid #222;
-            padding-top: 15px;
-            margin-top: 25px;
-          }
-
           .pie {
             margin-top: 30px;
             font-size: 12px;
@@ -2082,19 +2140,26 @@ function App() {
       </head>
 
       <body>
+
         <div class="cabecera">
           <h1>EL CHINO</h1>
           <h2>Historial del vehículo</h2>
 
           <p>
             <strong>Vehículo:</strong>
-            ${textoSeguro(vehiculoSeleccionado.marca)}
-            ${textoSeguro(vehiculoSeleccionado.modelo)}
+            ${
+              vehiculoSeleccionado.marca
+            }
+            ${
+              vehiculoSeleccionado.modelo
+            }
           </p>
 
           <p>
             <strong>Patente:</strong>
-            ${textoSeguro(vehiculoSeleccionado.patente)}
+            ${
+              vehiculoSeleccionado.patente
+            }
           </p>
 
           <p>
@@ -2108,13 +2173,10 @@ function App() {
 
         ${contenido}
 
-        <div class="total-historico">
-          TOTAL HISTÓRICO: ${formatoImporte(totalHistorico)}
-        </div>
-
         <div class="pie">
           Historial generado por EL CHINO — Taller Mecánico
         </div>
+
       </body>
       </html>
     `)
@@ -2359,16 +2421,17 @@ function App() {
                                         parte.id
                                       }
                                     >
-                                      <strong>{parte.nombre}</strong>
+                                      {
+                                        parte.nombre
+                                      }
+
                                       {parte.marca
                                         ? ` — ${parte.marca}`
                                         : ''}
-                                      {` — Cant.: ${parte.cantidad || 1}`}
-                                      {` — Precio unit.: ${formatoImporte(parte.precio)}`}
-                                      {` — Subtotal: ${formatoImporte(
-                                        Number(parte.cantidad || 1) *
-                                        Number(parte.precio || 0)
-                                      )}`}
+
+                                      {parte.cantidad
+                                        ? ` — Cant.: ${parte.cantidad}`
+                                        : ''}
                                     </li>
                                   )
                                 )}
@@ -2377,41 +2440,14 @@ function App() {
                             </div>
                           )}
 
-                          <div className="panel" style={{ marginTop: '12px' }}>
-                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px' }}>
-                              <span>Mano de obra</span>
-                              <strong>{formatoImporte(trabajo.importe)}</strong>
-                            </div>
-
-                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', marginTop:'6px' }}>
-                              <span>Repuestos</span>
-                              <strong>{formatoImporte(totalRepuestos(partes))}</strong>
-                            </div>
-
-                            <div style={{ display:'flex', justifyContent:'space-between', gap:'12px', marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #ddd', fontSize:'18px' }}>
-                              <strong>IMPORTE TOTAL</strong>
-                              <strong>
-                                {formatoImporte(
-                                  Number(trabajo.importe || 0) +
-                                  totalRepuestos(partes)
-                                )}
-                              </strong>
-                            </div>
-                          </div>
-
                           {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).length > 0 && (
                             <div style={{ marginTop:'12px' }}>
                               <strong>Fotos:</strong>
                               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:'8px', marginTop:'8px' }}>
                                 {fotosPublicas.filter((foto) => foto.service_record_id === trabajo.id).map((foto) => (
-                                  <button
-                                    key={foto.id}
-                                    type="button"
-                                    onClick={() => setFotoAmpliada(foto.foto_url)}
-                                    style={{ border:'0', padding:0, background:'transparent', cursor:'zoom-in' }}
-                                  >
-                                    <img src={foto.foto_url} alt="Foto del trabajo" style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'8px', display:'block' }} />
-                                  </button>
+                                  <a key={foto.id} href={foto.foto_url} target="_blank" rel="noreferrer">
+                                    <img src={foto.foto_url} alt="Foto del trabajo" style={{ width:'100%', height:'110px', objectFit:'cover', borderRadius:'8px' }} />
+                                  </a>
                                 ))}
                               </div>
                             </div>
@@ -2491,6 +2527,14 @@ function App() {
         >
           <Users size={17} />
           Clientes
+        </button>
+
+        <button
+          className="action-button"
+          onClick={() => { limpiarMensajes(); setPantalla('presupuestos') }}
+        >
+          <FileText size={17} />
+          Presupuestos
         </button>
 
       </nav>
@@ -2589,6 +2633,19 @@ function App() {
                   sus vehículos
                 </span>
 
+              </button>
+
+              <button
+                className="card"
+                onClick={() => { limpiarMensajes(); setPantalla('presupuestos') }}
+              >
+                <span className="card-icon">
+                  <FileText />
+                </span>
+                <strong>Presupuestos</strong>
+                <span>
+                  Preparar, imprimir y compartir presupuestos
+                </span>
               </button>
 
             </section>
@@ -2929,6 +2986,20 @@ function App() {
 
               </div>
 
+              {presupuestosVehiculo.length > 0 && (
+                <div className="panel">
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:'15px', flexWrap:'wrap' }}>
+                    <div>
+                      <h3>Presupuestos pendientes</h3>
+                      <p>{presupuestosVehiculo.length} presupuesto(s) guardado(s) para este vehículo.</p>
+                    </div>
+                    <button className="action-button" onClick={() => setPantalla('presupuestos')}>
+                      Ver presupuestos
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="vehicle-actions">
 
                 <button
@@ -2937,6 +3008,14 @@ function App() {
                 >
                   <Wrench size={18} />
                   Nuevo trabajo
+                </button>
+
+                <button
+                  className="action-button"
+                  onClick={nuevoPresupuesto}
+                >
+                  <FileText size={18} />
+                  Nuevo presupuesto
                 </button>
 
                 <button
@@ -3063,7 +3142,7 @@ function App() {
                         <strong>
                           {
                             formatoImporte(
-                              totalTrabajo(trabajo, partes)
+                              trabajo.importe
                             )
                           }
                         </strong>
@@ -4224,6 +4303,223 @@ function App() {
             </section>
           )}
 
+        {/* PRESUPUESTOS */}
+
+        {pantalla === 'presupuestos' && (
+          <section className="panel">
+            <button className="back" onClick={irInicio}>
+              <ArrowLeft size={17} />
+              Volver al inicio
+            </button>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'15px',flexWrap:'wrap'}}>
+              <div>
+                <span className="vehicle-label">GESTIÓN</span>
+                <h2>Presupuestos</h2>
+                <p>Presupuestos pendientes guardados en el sistema.</p>
+              </div>
+              <strong>{presupuestos.length} pendiente(s)</strong>
+            </div>
+
+            {presupuestos.length === 0 && (
+              <div className="empty">No hay presupuestos pendientes.</div>
+            )}
+
+            {presupuestos.map((presupuesto) => {
+              const vehiculo = vehiculos.find((item) => item.id === presupuesto.vehicle_id)
+              return (
+                <button
+                  key={presupuesto.id}
+                  className="vehicle-card"
+                  onClick={() => {
+                    if (vehiculo) {
+                      setVehiculoSeleccionado(vehiculo)
+                      const cliente = clientes.find((item) => item.id === vehiculo.customer_id)
+                      setClienteSeleccionado(cliente || vehiculo.customers || null)
+                    }
+                    abrirPresupuesto(presupuesto)
+                  }}
+                  style={{width:'100%',marginBottom:'12px'}}
+                >
+                  <div style={{textAlign:'left'}}>
+                    <strong>{vehiculo ? `${vehiculo.marca} ${vehiculo.modelo}` : 'Vehículo'}</strong>
+                    <p>{vehiculo?.patente || '-'} · {tipoPresupuesto(presupuesto)}</p>
+                    <small>{formatoFecha(presupuesto.fecha)}{presupuesto.kilometraje ? ` · ${presupuesto.kilometraje} km` : ''}</small>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <strong>{formatoImporte(Number(presupuesto.importe || 0))}</strong>
+                    <p>Mano de obra</p>
+                  </div>
+                  <ChevronRight size={21} />
+                </button>
+              )
+            })}
+          </section>
+        )}
+
+        {/* NUEVO PRESUPUESTO */}
+
+        {pantalla === 'nuevoPresupuesto' && vehiculoSeleccionado && (
+          <section className="panel">
+            <button className="back" onClick={() => setPantalla('ficha')}>
+              <ArrowLeft size={17} />
+              Volver al vehículo
+            </button>
+
+            <span className="vehicle-label">PRESUPUESTO</span>
+            <h2>Nuevo presupuesto</h2>
+            <p><strong>{vehiculoSeleccionado.patente}</strong> — {vehiculoSeleccionado.marca} {vehiculoSeleccionado.modelo}</p>
+
+            <form className="vehicle-form" onSubmit={guardarPresupuesto}>
+              <div className="form-grid">
+                <div className="form-field">
+                  <label>Fecha</label>
+                  <input type="date" name="fecha" value={formTrabajo.fecha} onChange={cambiarTrabajo} required />
+                </div>
+                <div className="form-field">
+                  <label>Kilometraje</label>
+                  <input type="number" name="kilometraje" value={formTrabajo.kilometraje} onChange={cambiarTrabajo} placeholder="Ej: 150000" />
+                </div>
+                <div className="form-field">
+                  <label>Tipo de trabajo</label>
+                  <select name="tipo_trabajo" value={formTrabajo.tipo_trabajo} onChange={cambiarTrabajo}>
+                    <option value="">General</option>
+                    <option>Diagnóstico</option>
+                    <option>Mecánica</option>
+                    <option>Electricidad</option>
+                    <option>Inyección</option>
+                    <option>Aire acondicionado</option>
+                    <option>Distribución</option>
+                    <option>Frenos</option>
+                    <option>Service</option>
+                    <option>Otro</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label>Mano de obra</label>
+                  <input type="number" min="0" step="0.01" name="importe" value={formTrabajo.importe} onChange={cambiarTrabajo} placeholder="Ej: 300000" />
+                </div>
+                <div className="form-field">
+                  <label>Total presupuesto</label>
+                  <input type="text" readOnly value={formatoImporte(Number(formTrabajo.importe || 0) + totalRepuestos(partesForm))} />
+                </div>
+              </div>
+
+              <div className="form-field">
+                <label>Descripción del trabajo *</label>
+                <textarea name="descripcion" value={formTrabajo.descripcion} onChange={cambiarTrabajo} placeholder="Ej: Cambio de distribución, bomba de agua y correa auxiliar." rows="5" required />
+              </div>
+
+              <div className="form-field">
+                <label>Observaciones / condiciones</label>
+                <textarea name="observaciones" value={formTrabajo.observaciones} onChange={cambiarTrabajo} placeholder="Ej: El precio queda sujeto a desmontaje y confirmación." rows="3" />
+              </div>
+
+              <hr />
+
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
+                <div>
+                  <h3>Repuestos</h3>
+                  <p>Agregá cada repuesto con su precio unitario.</p>
+                </div>
+                <button type="button" className="action-button" onClick={agregarParte}>
+                  <Plus size={17} /> Agregar repuesto
+                </button>
+              </div>
+
+              {partesForm.length === 0 && <div className="empty">No agregaste repuestos.</div>}
+
+              {partesForm.map((parte, indice) => (
+                <div className="panel" key={indice}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <h4>Repuesto {indice + 1}</h4>
+                    <button type="button" className="action-button" onClick={() => eliminarParte(indice)}><X size={17} /></button>
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-field">
+                      <label>Repuesto</label>
+                      <input value={parte.nombre} onChange={(e) => cambiarParte(indice,'nombre',e.target.value)} placeholder="Ej: Kit distribución" />
+                    </div>
+                    <div className="form-field">
+                      <label>Marca</label>
+                      <input value={parte.marca} onChange={(e) => cambiarParte(indice,'marca',e.target.value)} placeholder="Ej: SKF" />
+                    </div>
+                    <div className="form-field">
+                      <label>Cantidad</label>
+                      <input type="number" min="0.01" step="0.01" value={parte.cantidad} onChange={(e) => cambiarParte(indice,'cantidad',e.target.value)} />
+                    </div>
+                    <div className="form-field">
+                      <label>Precio unitario</label>
+                      <input type="number" min="0" step="0.01" value={parte.precio} onChange={(e) => cambiarParte(indice,'precio',e.target.value)} placeholder="$" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="panel" style={{marginTop:'15px'}}>
+                <div style={{display:'flex',justifyContent:'space-between'}}><strong>Mano de obra</strong><strong>{formatoImporte(Number(formTrabajo.importe || 0))}</strong></div>
+                <div style={{display:'flex',justifyContent:'space-between',marginTop:'8px'}}><strong>Repuestos</strong><strong>{formatoImporte(totalRepuestos(partesForm))}</strong></div>
+                <div style={{display:'flex',justifyContent:'space-between',marginTop:'12px',fontSize:'22px'}}><strong>TOTAL</strong><strong>{formatoImporte(Number(formTrabajo.importe || 0) + totalRepuestos(partesForm))}</strong></div>
+              </div>
+
+              <button className="save-button" type="submit" disabled={guardando}>
+                <Save size={18} />
+                {guardando ? 'Guardando presupuesto...' : 'Guardar presupuesto'}
+              </button>
+            </form>
+          </section>
+        )}
+
+        {/* DETALLE PRESUPUESTO */}
+
+        {pantalla === 'presupuestoDetalle' && presupuestoSeleccionado && vehiculoSeleccionado && (
+          <section className="panel">
+            <button className="back" onClick={() => setPantalla('presupuestos')}>
+              <ArrowLeft size={17} /> Volver a presupuestos
+            </button>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'15px',flexWrap:'wrap'}}>
+              <div>
+                <span className="vehicle-label">PRESUPUESTO PENDIENTE</span>
+                <h2>{tipoPresupuesto(presupuestoSeleccionado)}</h2>
+                <p>{vehiculoSeleccionado.patente} — {vehiculoSeleccionado.marca} {vehiculoSeleccionado.modelo}</p>
+              </div>
+              <strong>{formatoFecha(presupuestoSeleccionado.fecha)}</strong>
+            </div>
+
+            <div className="vehicle-detail-grid">
+              <div className="detail-item"><span>Cliente</span><strong>{clienteSeleccionado?.nombre || '-'}</strong></div>
+              <div className="detail-item"><span>Kilometraje</span><strong>{presupuestoSeleccionado.kilometraje ? `${presupuestoSeleccionado.kilometraje} km` : '-'}</strong></div>
+              <div className="detail-item"><span>Mano de obra</span><strong>{formatoImporte(Number(presupuestoSeleccionado.importe || 0))}</strong></div>
+              <div className="detail-item"><span>Total</span><strong>{formatoImporte(Number(presupuestoSeleccionado.importe || 0) + totalRepuestos(trabajoPartes))}</strong></div>
+            </div>
+
+            <div className="panel">
+              <h3>Trabajo</h3>
+              <p>{presupuestoSeleccionado.descripcion}</p>
+              {presupuestoSeleccionado.observaciones && <p><strong>Observaciones:</strong> {presupuestoSeleccionado.observaciones}</p>}
+            </div>
+
+            <div className="panel">
+              <h3>Repuestos</h3>
+              {trabajoPartes.length === 0 && <div className="empty">No hay repuestos cargados.</div>}
+              {trabajoPartes.map((parte) => (
+                <div key={parte.id} className="vehicle-card" style={{marginBottom:'8px'}}>
+                  <div><strong>{parte.nombre}</strong><p>{parte.marca || ''} {parte.cantidad ? `× ${parte.cantidad}` : ''}</p></div>
+                  <strong>{formatoImporte(Number(parte.precio || 0) * Number(parte.cantidad || 1))}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="vehicle-actions">
+              <button className="action-button" onClick={imprimirPresupuesto}><Printer size={18} /> Imprimir</button>
+              <button className="action-button" onClick={compartirPresupuestoWhatsApp}>Compartir por WhatsApp</button>
+              <button className="save-button" onClick={convertirPresupuesto} disabled={guardando}><Wrench size={18} /> Convertir en trabajo</button>
+              <button className="action-button" onClick={eliminarPresupuesto} disabled={guardando}><Trash2 size={18} /> Eliminar</button>
+            </div>
+          </section>
+        )}
+
         {/* HISTORIAL */}
 
         {pantalla === 'historial' &&
@@ -4394,7 +4690,7 @@ function App() {
                         <strong>
                           {
                             formatoImporte(
-                              totalTrabajo(trabajo, partes)
+                              trabajo.importe
                             )
                           }
                         </strong>
@@ -4488,43 +4784,13 @@ function App() {
 
                 <div className="detail-item">
                   <span>
-                    Mano de obra
+                    Importe
                   </span>
 
                   <strong>
                     {
                       formatoImporte(
                         trabajoSeleccionado.importe
-                      )
-                    }
-                  </strong>
-                </div>
-
-                <div className="detail-item">
-                  <span>
-                    Repuestos
-                  </span>
-
-                  <strong>
-                    {
-                      formatoImporte(
-                        totalRepuestos(trabajoPartes)
-                      )
-                    }
-                  </strong>
-                </div>
-
-                <div className="detail-item">
-                  <span>
-                    Importe total
-                  </span>
-
-                  <strong>
-                    {
-                      formatoImporte(
-                        Number(
-                          trabajoSeleccionado.importe || 0
-                        ) + totalRepuestos(trabajoPartes)
                       )
                     }
                   </strong>
@@ -4611,19 +4877,11 @@ function App() {
 
                       </div>
 
-                      <div style={{ textAlign: 'right' }}>
-                        <div>
-                          Cant.: {parte.cantidad || 1}
-                        </div>
-                        <div>
-                          Precio unitario: {formatoImporte(parte.precio)}
-                        </div>
-                        <strong>
-                          Subtotal: {formatoImporte(
-                            Number(parte.cantidad || 1) *
-                            Number(parte.precio || 0)
-                          )}
-                        </strong>
+                      <div>
+                        Cant.:{' '}
+                        {
+                          parte.cantidad
+                        }
                       </div>
 
                     </div>
@@ -5511,7 +5769,82 @@ function App() {
 
               <button
                 className="save-button"
-                onClick={imprimirQR}
+                onClick={() => {
+
+                  const ventana =
+                    window.open(
+                      '',
+                      '_blank',
+                      'width=700,height=800'
+                    )
+
+                  if (!ventana)
+                    return
+
+                  ventana.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>QR - ${
+                        vehiculoSeleccionado.patente
+                      }</title>
+
+                      <style>
+                        body {
+                          font-family: Arial;
+                          text-align: center;
+                          padding: 40px;
+                        }
+
+                        img {
+                          width: 350px;
+                          height: 350px;
+                        }
+
+                        h1 {
+                          margin-bottom: 5px;
+                        }
+                      </style>
+                    </head>
+
+                    <body>
+
+                      <h1>EL CHINO</h1>
+
+                      <h2>
+                        Historial del vehículo
+                      </h2>
+
+                      <h3>
+                        ${
+                          vehiculoSeleccionado.marca
+                        }
+                        ${
+                          vehiculoSeleccionado.modelo
+                        }
+                      </h3>
+
+                      <h2>
+                        ${
+                          vehiculoSeleccionado.patente
+                        }
+                      </h2>
+
+                      <img src="${dataUrl}" alt="QR del vehículo" />
+
+                      <p>
+                        Escaneá el código para consultar
+                        el historial del vehículo.
+                      </p>
+
+                    </body>
+                    </html>
+                  `)
+
+                  ventana.document.close()
+                  ventana.focus()
+                  ventana.print()
+                }}
               >
 
                 <Printer size={18} />
